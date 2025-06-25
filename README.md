@@ -1,7 +1,3 @@
-Of course! Here is a comprehensive README for your parser combinator library, written with an educational, curious, and helpful tone.
-
----
-
 # Combi-Parse
 A friendly, type-safe parser combinator library for TypeScript.
 
