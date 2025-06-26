@@ -103,31 +103,423 @@ Parser combinators offer a fundamentally different approach. The core insight is
 
 **Instead of writing imperative code that manually tracks position and state, we compose declarative "recipes" that describe what we want to parse.**
 
-### How Parser Combinators Work
+### How Parser Combinators Work: Building Intuition Through Examples
 
-The magic happens through **composition**. Here's the conceptual flow:
+The magic of parser combinators isn't abstract—it's a concrete, systematic approach to building parsers. Instead of writing complex parsing logic from scratch, you build sophisticated parsers by combining simple, reusable pieces. Let's see exactly how this works through practical examples.
 
-1. **Create atomic parsers** that recognize simple patterns (like a specific string or a number)
-2. **Use combinator functions** to combine these into more complex parsers
-3. **Each parser is a pure function** that takes input and returns either success or failure
-4. **Combinators handle the plumbing** of threading state, backtracking on failures, and collecting results
+#### 1. 🧱 Atomic Parsers: The Building Blocks
+
+**Atomic parsers** are the foundation—simple parsers that recognize basic patterns. Think of them as LEGO blocks: individually simple, but powerful when combined.
+
+##### Simple String Matching
 
 ```typescript
-// Each of these is a "recipe" - a Parser<T> object
-const keyword = str('let');           // Parser<'let'>
-const identifier = regex(/[a-z]+/);   // Parser<string>
-const equals = str('=');              // Parser<'='>
+import { str } from '@doeixd/combi-parse';
 
-// Combinators compose these recipes into bigger recipes
-const declaration = sequence([        // Parser<[string, string, string]>
-  keyword,
-  identifier, 
-  equals
+// An atomic parser that matches the exact string "hello"
+const helloParser = str('hello');
+
+// Let's see what happens when we use it
+console.log(helloParser.parse('hello world'));
+// Output: 'hello'
+
+console.log(helloParser.parse('hi there'));
+// Throws: ParseError: Expected "hello" at line 1, column 1
+```
+
+**What's happening here?**
+- `str('hello')` creates a parser that *only* succeeds if the input starts with "hello"
+- When successful, it returns the matched string and advances the position
+- When it fails, it throws a detailed error with the exact location
+
+##### Pattern Matching with Regex
+
+```typescript
+import { regex } from '@doeixd/combi-parse';
+
+// An atomic parser that matches one or more digits
+const digitSequence = regex(/\d+/);
+
+console.log(digitSequence.parse('123abc'));
+// Output: '123'
+
+console.log(digitSequence.parse('abc123'));
+// Throws: ParseError: Expected pattern /\d+/ at line 1, column 1
+```
+
+##### Character Classes
+
+```typescript
+import { charClass } from '@doeixd/combi-parse';
+
+// An atomic parser that matches any single digit
+const singleDigit = charClass('Digit');
+
+console.log(singleDigit.parse('7'));
+// Output: '7' (with type '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9')
+
+// An atomic parser that matches any whitespace character
+const whitespaceChar = charClass('Whitespace');
+
+console.log(whitespaceChar.parse(' '));
+// Output: ' '
+```
+
+**Key Insight**: Each atomic parser has **one job**—recognizing a specific pattern. They're predictable, testable, and composable.
+
+#### 2. 🔧 Combinator Functions: The Assembly Instructions
+
+**Combinator functions** take simple parsers and combine them into more sophisticated ones. They're like assembly instructions that tell you how to connect your LEGO blocks.
+
+##### Sequential Combination with `sequence`
+
+```typescript
+import { str, regex, sequence } from '@doeixd/combi-parse';
+
+// Combine atomic parsers in sequence
+const greeting = sequence([
+  str('Hello'),
+  str(' '),
+  regex(/[A-Z][a-z]+/)  // Capitalized name
+] as const);
+
+console.log(greeting.parse('Hello Alice'));
+// Output: ['Hello', ' ', 'Alice']
+
+// Transform the result into something more useful
+const greetingWithTransform = sequence([
+  str('Hello'),
+  str(' '),
+  regex(/[A-Z][a-z]+/)
+] as const, ([greeting, space, name]) => ({ greeting, name }));
+
+console.log(greetingWithTransform.parse('Hello Bob'));
+// Output: { greeting: 'Hello', name: 'Bob' }
+```
+
+##### Alternative Choices with `choice`
+
+```typescript
+import { str, choice } from '@doeixd/combi-parse';
+
+// Try multiple alternatives in order
+const politeness = choice([
+  str('please'),
+  str('thank you'),
+  str('sorry')
 ]);
 
-// Only when you call .parse() does the actual parsing happen
-const result = declaration.parse('let x =');
+console.log(politeness.parse('please help'));
+// Output: 'please'
+
+console.log(politeness.parse('thank you very much'));
+// Output: 'thank you'
+
+console.log(politeness.parse('hello'));
+// Throws: ParseError (none of the alternatives matched)
 ```
+
+##### Repetition with `.many()`
+
+```typescript
+import { charClass } from '@doeixd/combi-parse';
+
+// Match zero or more digits
+const digits = charClass('Digit').many();
+
+console.log(digits.parse('12345abc'));
+// Output: ['1', '2', '3', '4', '5']
+
+console.log(digits.parse('abc'));
+// Output: [] (zero digits is still valid)
+
+// Match one or more digits
+const atLeastOneDigit = charClass('Digit').many1();
+
+console.log(atLeastOneDigit.parse('42'));
+// Output: ['4', '2']
+
+console.log(atLeastOneDigit.parse('abc'));
+// Throws: ParseError (needs at least one digit)
+```
+
+##### Complex Combinations
+
+```typescript
+import { str, charClass, sequence, choice, between } from '@doeixd/combi-parse';
+
+// Parse a simple email address
+const emailParser = sequence([
+  charClass('CIdentifierPart').many1(),  // username
+  str('@'),
+  charClass('CIdentifierPart').many1(),  // domain name
+  str('.'),
+  choice([str('com'), str('org'), str('net')])  // TLD
+] as const, ([username, at, domain, dot, tld]) => ({
+  username: username.join(''),
+  domain: domain.join(''),
+  tld
+}));
+
+console.log(emailParser.parse('john@example.com'));
+// Output: { username: 'john', domain: 'example', tld: 'com' }
+```
+
+**Key Insight**: Combinators don't just stick parsers together—they define **how** to combine them (sequentially, as alternatives, with repetition, etc.).
+
+#### 3. ⚡ Pure Functions: Predictable Input → Output
+
+**Every parser is a pure function**—given the same input, it always produces the same result. No hidden state, no side effects, no surprises.
+
+##### Understanding Parser State
+
+```typescript
+// Conceptually, every parser is a function like this:
+type Parser<T> = (state: ParserState) => ParseResult<T>;
+
+interface ParserState {
+  input: string;
+  index: number;  // Current position in the input
+}
+
+type ParseResult<T> = 
+  | { success: true; value: T; newState: ParserState }
+  | { success: false; error: string; state: ParserState };
+```
+
+##### Seeing State in Action
+
+```typescript
+import { str } from '@doeixd/combi-parse';
+
+// Let's trace through what happens internally
+const parser = str('hi');
+
+// Initial state: { input: "hi there", index: 0 }
+// Parser checks: input.substring(0, 2) === "hi" ✓
+// Returns: { success: true, value: "hi", newState: { input: "hi there", index: 2 } }
+
+console.log(parser.parse('hi there'));
+// Output: 'hi'
+
+// If we had more parsing to do, the next parser would start at index 2
+```
+
+##### Predictable Behavior
+
+```typescript
+import { charClass } from '@doeixd/combi-parse';
+
+const digitParser = charClass('Digit');
+
+// These calls are completely independent
+console.log(digitParser.parse('7'));  // Always returns '7'
+console.log(digitParser.parse('3'));  // Always returns '3'
+console.log(digitParser.parse('7'));  // Still returns '7'
+
+// No hidden state means no surprises!
+```
+
+##### Transformation with `.map()`
+
+```typescript
+import { regex } from '@doeixd/combi-parse';
+
+// Pure transformation: string → number
+const numberParser = regex(/\d+/).map(str => parseInt(str, 10));
+
+console.log(numberParser.parse('42'));
+// Output: 42 (number, not string)
+
+// The original parser is unchanged
+const stringParser = regex(/\d+/);
+console.log(stringParser.parse('42'));
+// Output: '42' (still a string)
+```
+
+**Key Insight**: Pure functions make parsers **predictable** and **composable**. You can reason about them in isolation and combine them fearlessly.
+
+#### 4. 🔄 Automatic Plumbing: State, Backtracking, and Error Handling
+
+**The combinator library handles all the messy details** so you don't have to. It automatically manages position tracking, tries alternatives when parsing fails, and provides helpful error messages.
+
+##### Automatic State Threading
+
+```typescript
+import { str, sequence } from '@doeixd/combi-parse';
+
+// You write this simple combination
+const greeting = sequence([
+  str('Hello'),
+  str(' '),
+  str('World')
+] as const);
+
+// But the library automatically handles:
+// 1. Parse "Hello" starting at position 0
+// 2. If successful, parse " " starting at position 5
+// 3. If successful, parse "World" starting at position 6
+// 4. Collect all results into an array
+
+console.log(greeting.parse('Hello World'));
+// Output: ['Hello', ' ', 'World']
+```
+
+##### Automatic Backtracking
+
+```typescript
+import { str, choice } from '@doeixd/combi-parse';
+
+const keyword = choice([
+  str('function'),
+  str('fun'),
+  str('func')
+]);
+
+// When parsing "function":
+// 1. Try str('function') at position 0 → SUCCESS ✓
+// 2. Return 'function', don't try other alternatives
+
+// When parsing "fun":  
+// 1. Try str('function') at position 0 → FAIL (no match)
+// 2. Backtrack to position 0
+// 3. Try str('fun') at position 0 → SUCCESS ✓
+// 4. Return 'fun'
+
+console.log(keyword.parse('function'));  // Output: 'function'
+console.log(keyword.parse('fun'));       // Output: 'fun'
+```
+
+##### Automatic Error Collection
+
+```typescript
+import { str, sequence, choice } from '@doeixd/combi-parse';
+
+const problematicParser = sequence([
+  str('let'),
+  str(' '),
+  choice([
+    str('x'),
+    str('y'),
+    str('z')
+  ]),
+  str(' = '),
+  str('42')
+] as const);
+
+try {
+  problematicParser.parse('let a = 42');
+} catch (error) {
+  console.log(error.message);
+  // Output: Expected "x", "y", or "z" at line 1, column 5
+  //         The library figured out exactly where and what failed!
+}
+```
+
+##### Smart Error Messages with Context
+
+```typescript
+import { str, sequence, label, context } from '@doeixd/combi-parse';
+
+const betterParser = context(
+  sequence([
+    label(str('let'), 'let keyword'),
+    str(' '),
+    label(choice([str('x'), str('y'), str('z')]), 'variable name'),
+    str(' = '),
+    label(str('42'), 'value')
+  ] as const),
+  'parsing variable declaration'
+);
+
+try {
+  betterParser.parse('let a = 42');
+} catch (error) {
+  console.log(error.message);
+  // Output: Expected variable name at line 1, column 5 while parsing variable declaration
+  //         Much more helpful!
+}
+```
+
+##### Handling Left Recursion Automatically
+
+```typescript
+import { str, choice, sequence, leftRecursive, lexeme } from '@doeixd/combi-parse';
+
+// This would cause infinite recursion if we tried it naively
+const expression = leftRecursive(() =>
+  choice([
+    // Recursive case: expr + expr
+    sequence([expression, lexeme(str('+')), expression] as const,
+      ([left, op, right]) => ({ type: 'add', left, right })),
+    
+    // Base case: just a number
+    lexeme(regex(/\d+/)).map(n => ({ type: 'number', value: parseInt(n) }))
+  ])
+);
+
+console.log(expression.parse('1 + 2 + 3'));
+// Output: Complex AST representing ((1 + 2) + 3)
+// The library handled the left-recursion automatically!
+```
+
+**Key Insight**: The combinator library is like having an **expert assistant**—it handles all the tedious, error-prone work while you focus on describing **what** you want to parse, not **how** to manage the parsing process.
+
+#### 🎯 Putting It All Together: A Complete Example
+
+Let's see all four concepts work together in a real parser:
+
+```typescript
+import { 
+  str, regex, sequence, choice, between, many, lexeme,
+  charClass, label, context 
+} from '@doeixd/combi-parse';
+
+// 1. ATOMIC PARSERS: Building blocks
+const number = regex(/\d+/).map(n => parseInt(n, 10));
+const identifier = regex(/[a-zA-Z_][a-zA-Z0-9_]*/);
+const stringLiteral = between(str('"'), regex(/[^"]*/), str('"'));
+
+// 2. COMBINATORS: Assembly instructions  
+const value = choice([
+  number,
+  stringLiteral,
+  identifier
+]);
+
+const assignment = sequence([
+  lexeme(str('let')),
+  lexeme(identifier),
+  lexeme(str('=')),
+  value,
+  str(';')
+] as const, ([, name, , val]) => ({ type: 'assignment', name, value: val }));
+
+// 3. PURE FUNCTIONS: Predictable behavior
+const program = many(lexeme(assignment));
+
+// 4. AUTOMATIC PLUMBING: The library handles everything else
+const result = program.parse(`
+  let name = "Alice";
+  let age = 25;
+  let active = true;
+`);
+
+console.log(result);
+// Output: [
+//   { type: 'assignment', name: 'name', value: 'Alice' },
+//   { type: 'assignment', name: 'age', value: 25 },
+//   { type: 'assignment', name: 'active', value: 'true' }
+// ]
+```
+
+**What just happened?**
+1. **Atomic parsers** recognized individual tokens (numbers, strings, identifiers)
+2. **Combinators** assembled them into larger structures (assignments, programs)
+3. **Pure functions** made each step predictable and testable
+4. **Automatic plumbing** handled whitespace, position tracking, and error reporting
+
+You described **what** the language looks like, and the library figured out **how** to parse it. That's the magic of parser combinators!
 
 ### The State Machine Under the Hood
 
