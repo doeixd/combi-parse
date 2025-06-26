@@ -1383,7 +1383,48 @@ function parseStream(stream: ReadableStream): AsyncGenerator<AST> {
 
 With these techniques, you can build parsers that gracefully handle errors, provide helpful feedback to users, and correctly parse complex language constructs. The key is to think about failure cases early and design your grammar to be both expressive and robust.
 
+<br />
 
+## 🔤 Type-Safe Character Classes
+
+One of the most powerful features of Combi-Parse is its **type-safe character parsing system**. Instead of using error-prone string matching or losing type information with generic parsers, you get precise, compile-time guarantees about exactly which characters your parsers will match.
+
+```typescript
+import { charClass } from '@doeixd/combi-parse';
+
+// ✅ Perfect type safety with named character classes
+const digitParser = charClass('Digit');
+// Type: Parser<'0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'>
+
+const result = digitParser.parse('7');
+// result has type '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+// TypeScript knows exactly which characters are possible!
+
+// ✅ Custom character sets are also type-safe
+const boolParser = charClass('yn');
+// Type: Parser<'y' | 'n'>
+
+// ✅ IntelliSense shows all available character classes
+const hexParser = charClass('HexDigit');   // Includes 0-9, a-f, A-F
+const letterParser = charClass('Alpha');   // All ASCII letters
+const unicodeParser = charClass('Hiragana'); // Japanese characters
+```
+
+**Why this matters:**
+- 🛡️ **Catch bugs at compile time** - TypeScript knows exactly which characters are valid
+- 🧠 **Intelligent IntelliSense** - Your editor suggests valid character comparisons
+- 🔗 **Perfect composition** - Character types flow through your entire parser chain
+- 📚 **Comprehensive coverage** - Over 50 pre-defined character classes from ASCII to Unicode
+
+**Character classes available include:**
+- **Basic**: `Digit`, `Alpha`, `Whitespace`, `Punctuation`
+- **Specific**: `HexDigit`, `CIdentifierStart`, `Base64Char`
+- **Unicode**: `Hiragana`, `Cyrillic`, `Arabic`, `CjkUnifiedIdeographs`
+- **Symbols**: `CurrencySymbols`, `MathematicalOperators`, `Arrows`
+
+👉 **[Read the complete Character Classes guide →](docs/character-classes.md)**
+
+This guide covers the type safety benefits, how the system works under the hood, migration from `anyOf`, Unicode handling, and advanced usage patterns.
 
 <br />
 
