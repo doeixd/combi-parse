@@ -848,6 +848,543 @@ console.log(expressionParser.parse("10 + 5 - 3")); // -> 12
 console.log(expressionParser.parse("100"));          // -> 100
 ```
 
+# Robust Error Handling & Advanced Parsing Techniques
+
+Building production-ready parsers requires more than just recognizing valid input—you need to handle invalid input gracefully, provide helpful error messages, and parse complex constructs like operator precedence correctly. This guide covers advanced techniques for building robust, user-friendly parsers.
+
+## 🔄 Understanding Backtracking
+
+Backtracking is the foundation of how parser combinators handle failures. Understanding it is crucial for writing efficient, predictable parsers.
+
+### How Backtracking Works
+
+When a parser fails, the input position automatically "rewinds" to where it started:
+
+```typescript
+const parser = choice([
+  str('function'),  // Tries to match 'function'
+  str('fun')        // If that fails, tries 'fun' from the same position
+]);
+
+// Input: "funky"
+// 1. str('function') fails at position 0 (no match)
+// 2. Position rewinds to 0
+// 3. str('fun') succeeds, consuming 3 characters
+// 4. Result: 'fun', position now at 3
+```
+
+### The Committed Choice Problem
+
+Once a parser consumes input, other alternatives in `choice()` won't be tried:
+
+```typescript
+const problematicParser = choice([
+  sequence([str('fun'), str('ction')]),  // This will consume 'fun'
+  str('function')                        // This will never be tried
+]);
+
+// Input: "function"
+// 1. First alternative matches 'fun', then fails on 'ction'
+// 2. Since input was consumed, choice() doesn't try the second alternative
+// 3. Parser fails with "Expected 'ction'" instead of succeeding
+```
+
+**Solution**: Order alternatives from most specific to least specific:
+
+```typescript
+const fixedParser = choice([
+  str('function'),   // More specific first
+  str('fun')         // Less specific second
+]);
+```
+
+### Controlling Backtracking with `lookahead`
+
+Sometimes you want to check what's ahead without consuming input:
+
+```typescript
+const conditionalParser = sequence([
+  str('if'),
+  lookahead(str('(')),  // Check for '(' but don't consume it
+  expression,
+  str('then'),
+  statement
+]);
+
+// This ensures we only parse 'if' statements that have parentheses
+// but lets the expression parser handle the actual parentheses
+```
+
+## 🛡️ Error Handling Strategies
+
+### 1. Basic Error Labeling
+
+Replace cryptic default errors with meaningful messages:
+
+```typescript
+// ❌ Unhelpful error: "Expected 'function' at line 1, column 1"
+const fn = str('function');
+
+// ✅ Clear error: "Expected function declaration at line 1, column 1"
+const fn = label(str('function'), 'function declaration');
+```
+
+### 2. Error Context Stack
+
+Build error "stack traces" to show parsing context:
+
+```typescript
+const functionDeclaration = context(
+  sequence([
+    label(str('function'), 'function keyword'),
+    label(identifier, 'function name'),
+    label(str('('), 'opening parenthesis'),
+    parameterList,
+    label(str(')'), 'closing parenthesis'),
+    functionBody
+  ] as const),
+  'parsing function declaration'
+);
+
+// Error: "Expected closing parenthesis at line 2, column 15 while parsing function declaration"
+```
+
+### 3. Custom Error Types
+
+Create domain-specific error information:
+
+```typescript
+interface ParseError {
+  message: string;
+  line: number;
+  column: number;
+  context: string[];
+  suggestions?: string[];
+}
+
+const smartIdentifier = identifier.chain(name => {
+  const keywords = ['function', 'if', 'while', 'for'];
+  if (keywords.includes(name)) {
+    return fail(`'${name}' is a reserved keyword. Try a different name.`);
+  }
+  return succeed(name);
+});
+```
+
+### 4. Error Recovery Strategies
+
+Instead of stopping at the first error, try to continue parsing:
+
+```typescript
+const robustStatementList = sequence([
+  statement,
+  many(choice([
+    sequence([str(';'), statement]),
+    // Recovery: skip to next semicolon and try again
+    recoverTo(str(';')).chain(() => 
+      context(statement, 'recovering from syntax error')
+    )
+  ]))
+]);
+
+function recoverTo<T>(delimiter: Parser<T>): Parser<null> {
+  return regex(/[^;]*/).chain(() => delimiter).map(() => null);
+}
+```
+
+## 🔢 Operator Precedence Parsing
+
+Parsing expressions with proper operator precedence is a common challenge. Here are several approaches:
+
+### 1. Precedence Climbing Algorithm
+
+Build expressions bottom-up, handling precedence levels:
+
+```typescript
+// Define operators with precedence and associativity
+const operators = {
+  '+': { precedence: 1, associativity: 'left' },
+  '-': { precedence: 1, associativity: 'left' },
+  '*': { precedence: 2, associativity: 'left' },
+  '/': { precedence: 2, associativity: 'left' },
+  '**': { precedence: 3, associativity: 'right' }
+};
+
+function buildExpressionParser() {
+  const factor = choice([
+    number,
+    between(str('('), () => expression, str(')'))
+  ]);
+
+  const expression = precedenceClimb(factor, operators);
+  
+  return expression;
+}
+
+function precedenceClimb(
+  atom: Parser<Expr>, 
+  ops: OperatorTable
+): Parser<Expr> {
+  return atom.chain(left => 
+    parseRightOperands(left, 0, ops)
+  );
+}
+
+function parseRightOperands(
+  left: Expr, 
+  minPrec: number, 
+  ops: OperatorTable
+): Parser<Expr> {
+  return choice([
+    // Try to parse an operator with sufficient precedence
+    choice(Object.entries(ops).map(([op, info]) => {
+      if (info.precedence < minPrec) return fail('precedence too low');
+      
+      return sequence([
+        lexeme(str(op)),
+        precedenceClimb(atom, ops)  // Parse right operand
+      ] as const).chain(([operator, right]) => {
+        const newLeft = { type: 'binary', left, operator, right };
+        const nextMinPrec = info.associativity === 'left' 
+          ? info.precedence + 1 
+          : info.precedence;
+        return parseRightOperands(newLeft, nextMinPrec, ops);
+      });
+    })),
+    // No more operators, return current left
+    succeed(left)
+  ]);
+}
+```
+
+### 2. Layered Expression Parsing
+
+Build precedence as separate parser layers:
+
+```typescript
+const expressionParser = () => {
+  // Lowest precedence: addition/subtraction
+  const additive = leftRecursive(() => choice([
+    sequence([additive, lexeme(str('+')), multiplicative] as const,
+      ([left, , right]) => ({ type: 'add', left, right })),
+    sequence([additive, lexeme(str('-')), multiplicative] as const,
+      ([left, , right]) => ({ type: 'sub', left, right })),
+    multiplicative
+  ]));
+
+  // Higher precedence: multiplication/division
+  const multiplicative = leftRecursive(() => choice([
+    sequence([multiplicative, lexeme(str('*')), exponential] as const,
+      ([left, , right]) => ({ type: 'mul', left, right })),
+    sequence([multiplicative, lexeme(str('/')), exponential] as const,
+      ([left, , right]) => ({ type: 'div', left, right })),
+    exponential
+  ]));
+
+  // Highest precedence: exponentiation (right-associative)
+  const exponential = choice([
+    sequence([primary, lexeme(str('**')), exponential] as const,
+      ([left, , right]) => ({ type: 'pow', left, right })),
+    primary
+  ]);
+
+  // Primary expressions: numbers, parentheses, etc.
+  const primary = choice([
+    number.map(n => ({ type: 'number', value: n })),
+    between(lexeme(str('(')), additive, lexeme(str(')'))),
+    identifier.map(name => ({ type: 'variable', name }))
+  ]);
+
+  return additive;
+};
+```
+
+### 3. Pratt Parser Implementation
+
+A more flexible approach using Pratt parsing:
+
+```typescript
+type PrefixParselet = () => Parser<Expr>;
+type InfixParselet = (left: Expr, precedence: number) => Parser<Expr>;
+
+class PrattParser {
+  private prefixParselets = new Map<string, PrefixParselet>();
+  private infixParselets = new Map<string, InfixParselet>();
+
+  register(token: string, prefix?: PrefixParselet, infix?: InfixParselet) {
+    if (prefix) this.prefixParselets.set(token, prefix);
+    if (infix) this.infixParselets.set(token, infix);
+  }
+
+  parseExpression(precedence = 0): Parser<Expr> {
+    return this.parsePrefix().chain(left => 
+      this.parseInfix(left, precedence)
+    );
+  }
+
+  private parsePrefix(): Parser<Expr> {
+    return choice([
+      // Try each registered prefix parser
+      ...Array.from(this.prefixParselets.entries()).map(([token, parselet]) =>
+        str(token).chain(() => parselet())
+      ),
+      // Default: numbers and identifiers
+      number.map(n => ({ type: 'number', value: n })),
+      identifier.map(name => ({ type: 'variable', name }))
+    ]);
+  }
+
+  private parseInfix(left: Expr, precedence: number): Parser<Expr> {
+    return choice([
+      // Try each infix operator with sufficient precedence
+      ...Array.from(this.infixParselets.entries())
+        .filter(([token, _]) => this.getPrecedence(token) >= precedence)
+        .map(([token, parselet]) =>
+          str(token).chain(() => parselet(left, precedence))
+        ),
+      // No more operators
+      succeed(left)
+    ]);
+  }
+}
+
+// Usage
+const parser = new PrattParser();
+parser.register('+', undefined, (left, prec) => 
+  parser.parseExpression(prec + 1).map(right => ({ type: 'add', left, right }))
+);
+```
+
+## 📋 Syntax Error Reporting
+
+### Building Helpful Error Messages
+
+Good error messages should:
+1. **Pinpoint the exact location** of the error
+2. **Explain what was expected** vs what was found
+3. **Suggest possible fixes** when appropriate
+4. **Provide context** about what the parser was trying to do
+
+```typescript
+interface DetailedError {
+  message: string;
+  location: { line: number; column: number; index: number };
+  expected: string[];
+  found: string;
+  context: string[];
+  suggestions: string[];
+  snippet: string;  // Source code around the error
+}
+
+function createDetailedError(
+  message: string,
+  state: ParserState,
+  expected: string[] = [],
+  suggestions: string[] = []
+): DetailedError {
+  const location = getLocationInfo(state);
+  const snippet = getSourceSnippet(state, 2); // 2 lines of context
+  
+  return {
+    message,
+    location,
+    expected,
+    found: getCurrentChar(state),
+    context: getParsingContext(state),
+    suggestions,
+    snippet
+  };
+}
+
+function formatError(error: DetailedError): string {
+  const { message, location, snippet, suggestions } = error;
+  
+  let output = `Error at line ${location.line}, column ${location.column}:\n`;
+  output += `${message}\n\n`;
+  
+  // Show source snippet with error highlighted
+  output += snippet + '\n';
+  output += ' '.repeat(location.column - 1) + '^\n';
+  
+  if (suggestions.length > 0) {
+    output += '\nDid you mean:\n';
+    suggestions.forEach(s => output += `  - ${s}\n`);
+  }
+  
+  return output;
+}
+```
+
+### Smart Error Recovery
+
+Continue parsing after errors to find multiple issues:
+
+```typescript
+const robustParser = many(choice([
+  // Try to parse a valid statement
+  context(statement, 'parsing statement'),
+  
+  // If that fails, try to recover
+  recoverFromError().chain(() => 
+    // Log the error but continue
+    succeed({ type: 'error', message: 'Syntax error encountered' })
+  )
+]));
+
+function recoverFromError(): Parser<null> {
+  return choice([
+    // Skip to next statement delimiter
+    regex(/[^;\n}]*[;\n}]/).map(() => null),
+    
+    // Skip to next line if no delimiter found
+    regex(/[^\n]*\n/).map(() => null),
+    
+    // Give up if at end of input
+    eof.map(() => null)
+  ]);
+}
+```
+
+## 🚨 Avoiding Parser Panics
+
+### 1. Validate Input Early
+
+Check for common issues before parsing:
+
+```typescript
+function safeParseCode(input: string): ParseResult<AST> {
+  // Pre-validation checks
+  if (!input.trim()) {
+    return { success: false, error: 'Empty input' };
+  }
+  
+  if (input.length > 1000000) {
+    return { success: false, error: 'Input too large (max 1MB)' };
+  }
+  
+  // Check for balanced parentheses/brackets
+  if (!isBalanced(input)) {
+    return { success: false, error: 'Unbalanced parentheses or brackets' };
+  }
+  
+  try {
+    return parser.parse(input);
+  } catch (error) {
+    return { 
+      success: false, 
+      error: `Parse error: ${error.message}` 
+    };
+  }
+}
+
+function isBalanced(input: string): boolean {
+  const stack: string[] = [];
+  const pairs = { '(': ')', '[': ']', '{': '}' };
+  
+  for (const char of input) {
+    if (char in pairs) {
+      stack.push(char);
+    } else if (Object.values(pairs).includes(char)) {
+      const last = stack.pop();
+      if (!last || pairs[last] !== char) return false;
+    }
+  }
+  
+  return stack.length === 0;
+}
+```
+
+### 2. Timeout Protection
+
+Prevent infinite loops in complex grammars:
+
+```typescript
+function parseWithTimeout<T>(
+  parser: Parser<T>, 
+  input: string, 
+  timeoutMs = 5000
+): Promise<ParseResult<T>> {
+  return Promise.race([
+    Promise.resolve(parser.parse(input)),
+    
+    new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Parse timeout')), timeoutMs)
+    )
+  ]);
+}
+```
+
+### 3. Memory Management
+
+Prevent memory leaks with large inputs:
+
+```typescript
+const memoizedParser = memo(expensiveParser);
+
+// Clear memoization cache periodically
+function clearParserCache() {
+  // Implementation depends on your memo implementation
+  memoizedParser.clearCache();
+}
+
+// For streaming large files
+function parseStream(stream: ReadableStream): AsyncGenerator<AST> {
+  const buffer = '';
+  const reader = stream.getReader();
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += value;
+      
+      // Parse complete statements as they arrive
+      const results = extractCompleteStatements(buffer);
+      for (const statement of results) {
+        yield parser.parse(statement);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+```
+
+## 🎯 Best Practices Summary
+
+### Error Handling Checklist
+
+- ✅ **Use `label()` for all user-facing parsers** to provide meaningful error messages
+- ✅ **Add `context()` around complex parsing operations** to build error stack traces  
+- ✅ **Order `choice()` alternatives from specific to general** to avoid backtracking issues
+- ✅ **Implement error recovery** for interactive applications (IDEs, REPLs)
+- ✅ **Validate input early** to catch common issues before parsing
+- ✅ **Use timeouts** for complex grammars that might hang
+- ✅ **Provide suggestions** in error messages when possible
+
+### Performance Considerations
+
+- ✅ **Use `memo()` for expensive recursive parsers** to avoid redundant work
+- ✅ **Minimize backtracking** by structuring grammars carefully
+- ✅ **Use `lookahead()` sparingly** as it can impact performance
+- ✅ **Consider streaming** for very large inputs
+- ✅ **Profile your parsers** to identify bottlenecks
+
+### Operator Precedence Tips
+
+- ✅ **Choose the right technique** for your complexity level:
+  - Simple: Layered parsing
+  - Medium: Precedence climbing  
+  - Complex: Pratt parsing
+- ✅ **Test edge cases** like right-associative operators
+- ✅ **Handle unary operators** explicitly
+- ✅ **Consider operator overloading** in your language design
+
+With these techniques, you can build parsers that gracefully handle errors, provide helpful feedback to users, and correctly parse complex language constructs. The key is to think about failure cases early and design your grammar to be both expressive and robust.
+
+
+
 <br />
 
 ## 📜 License
