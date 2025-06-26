@@ -148,6 +148,8 @@ class ParserError extends Error {}
  * @template T The type of the value this parser produces on success.
  */
 export class Parser<T> {
+
+  describe?(): string; 
   /**
    * The heart of the parser. This function takes the current `ParserState` and
    * attempts to parse the input. It returns either a `Success` or `Failure`.
@@ -420,6 +422,24 @@ export class Parser<T> {
   keepLeft<U>(p: Parser<U>): Parser<T> {
     return this.chain(res => p.map(() => res));
   }
+  
+  debug(label?: string): Parser<T> {
+    return new Parser(state => {
+      const prefix = label ? `[${label}] ` : '';
+      console.log(`${prefix}Trying at position ${state.index}: "${state.input.slice(state.index, state.index + 20)}..."`);
+
+      const result = this.run(state);
+
+      if (result.type === 'success') {
+        console.log(`${prefix}✅ Success! Consumed: "${state.input.slice(state.index, result.state.index)}"`);
+      } else {
+        console.log(`${prefix}❌ Failed: ${result.message}`);
+      }
+
+      return result;
+    })
+  };
+  
 }
 
 // =================================================================
