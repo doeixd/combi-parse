@@ -22,13 +22,7 @@ This library provides a set of tools to build complex parsers from simple, reusa
 
 ```bash
 # Using npm
-npm install @doeixd/combi-parse
-
-# Using yarn
-yarn add @doeixd/combi-parse
-
-# Using pnpm
-pnpm add @doeixd/combi-parse
+npm i @doeixd/combi-parse
 ```
 
 <br />
@@ -73,36 +67,491 @@ console.log(result);
 
 <br />
 
-## 🤔 The "Why" and "How": A Gentle Introduction
+## 🤔 Understanding Parser Combinators: The Deep Dive
 
 ### What is Parsing?
 
 Parsing is the process of taking raw text and turning it into a structured, meaningful representation. A web browser parses HTML into a DOM tree, a JavaScript engine parses code into an Abstract Syntax Tree (AST), and a command-line tool parses arguments into a configuration object. This library gives you the tools to do the same for any structured text you can imagine.
 
-### Why Parser Combinators?
+### The Traditional Approach vs. Parser Combinators
 
-You could parse text with a series of `indexOf`, `substring`, and regular expression calls. However, this approach quickly becomes brittle, hard to read, and difficult to maintain as the complexity of your format grows.
+You could parse text with a series of `indexOf`, `substring`, and regular expression calls:
 
-Parser combinators offer a different approach. The core idea is:
+```typescript
+// Traditional approach - brittle and hard to maintain
+function parseDeclaration(input: string) {
+  let index = 0;
+  
+  // Skip whitespace
+  while (input[index] === ' ') index++;
+  
+  // Check for "let"
+  if (!input.substring(index, index + 3) === 'let') {
+    throw new Error('Expected "let"');
+  }
+  index += 3;
+  
+  // Skip whitespace
+  while (input[index] === ' ') index++;
+  
+  // Parse identifier... and so on
+  // This gets unwieldy fast!
+}
+```
 
-1.  **Create small, simple parsers** that do one thing well (e.g., parse a specific word, parse a number).
-2.  **Use "combinator" functions** to combine these small parsers into bigger ones that recognize more complex patterns (e.g., parse a number *or* a word, parse a list of numbers separated by commas).
+Parser combinators offer a fundamentally different approach. The core insight is:
 
-This approach leads to code that is declarative, modular, and often mirrors the formal grammar of the language you are parsing.
+**Instead of writing imperative code that manually tracks position and state, we compose declarative "recipes" that describe what we want to parse.**
 
-### Core Concepts
+### How Parser Combinators Work
 
-A few key ideas form the foundation of this library. Understanding them will make the API feel intuitive.
+The magic happens through **composition**. Here's the conceptual flow:
 
-*   **The `Parser<T>` Object**: A `Parser<T>` isn't a result; it's a *recipe*. It's an object that holds a function describing *how* to parse a piece of text to produce a value of type `T`. It only does its work when you call the final `.parse(input)` method.
+1. **Create atomic parsers** that recognize simple patterns (like a specific string or a number)
+2. **Use combinator functions** to combine these into more complex parsers
+3. **Each parser is a pure function** that takes input and returns either success or failure
+4. **Combinators handle the plumbing** of threading state, backtracking on failures, and collecting results
 
-*   **State and Result**: As a parser runs, it tracks its `ParserState` (`{ input: string, index: number }`). When a parser recipe is executed, it returns a `ParseResult<T>`, which is either a `Success<T>` (containing the parsed value and the *new* state) or a `Failure` (containing an error message and the state where it failed).
+```typescript
+// Each of these is a "recipe" - a Parser<T> object
+const keyword = str('let');           // Parser<'let'>
+const identifier = regex(/[a-z]+/);   // Parser<string>
+const equals = str('=');              // Parser<'='>
 
-*   **Combinators**: These are the heart of the library. They are functions that take one or more parsers and return a new, more powerful parser. `sequence`, `choice`, `many`, and `sepBy` are prime examples.
+// Combinators compose these recipes into bigger recipes
+const declaration = sequence([        // Parser<[string, string, string]>
+  keyword,
+  identifier, 
+  equals
+]);
 
-*   **Mapping (`.map`)**: This is for when you've successfully parsed something but need to transform the result. For example, the `regex(/[0-9]+/)` parser produces a `string`, but you can use `.map(Number)` to create a new parser that produces a `number`.
+// Only when you call .parse() does the actual parsing happen
+const result = declaration.parse('let x =');
+```
 
-*   **Chaining (`.chain`)**: This is for when the *next step* of your parsing logic depends on the *result* of the previous step. For example, to parse a length-prefixed string like `"3:abc"`, you first need to parse the `3`, and then use that value to know how many characters to parse next.
+### The State Machine Under the Hood
+
+When you call `.parse()`, here's what happens internally:
+
+1. **Initialize state**: `{ input: "let x = 42", index: 0 }`
+2. **Thread state through parsers**: Each parser receives the current state and returns either:
+   - `Success<T>` with the parsed value and new state
+   - `Failure` with an error message and the failure position
+3. **Backtrack on failure**: If a parser fails, the state rewinds to where it started
+4. **Collect and transform results**: Successful parsers can transform their results with `.map()`
+
+```typescript
+// Conceptual implementation of how `str()` works
+function str(expected: string): Parser<string> {
+  return {
+    run(state: ParserState): ParseResult<string> {
+      const { input, index } = state;
+      
+      if (input.substring(index, index + expected.length) === expected) {
+        return {
+          success: true,
+          value: expected,
+          state: { input, index: index + expected.length }
+        };
+      } else {
+        return {
+          success: false,
+          error: `Expected "${expected}"`,
+          state
+        };
+      }
+    }
+  };
+}
+```
+
+### Why This Approach is Powerful
+
+**🎯 Composability**: Small parsers combine into larger ones naturally. A JSON parser is built from string, number, array, and object parsers.
+
+**📖 Readability**: The code reads like a formal grammar. Compare:
+```typescript
+// Parser combinator approach
+const jsonValue = choice([
+  jsonString,
+  jsonNumber,
+  jsonArray,
+  jsonObject,
+  jsonBoolean,
+  jsonNull
+]);
+
+// vs. manual parsing
+function parseJsonValue(input, index) {
+  if (input[index] === '"') return parseString(input, index);
+  else if (input[index] === '[') return parseArray(input, index);
+  else if (input[index] === '{') return parseObject(input, index);
+  // ... lots more imperative code
+}
+```
+
+**🔧 Modularity**: Each parser is independent and testable. You can build a library of reusable parsers.
+
+**🛡️ Error Handling**: Sophisticated error reporting comes for free. The library tracks exactly where and why parsing failed.
+
+**🎪 Flexibility**: Need to change the grammar? Just swap out or recombine parsers. No need to rewrite large chunks of imperative code.
+
+### Core Concepts Deep Dive
+
+**The `Parser<T>` Object**: Think of this as a "recipe card" that knows how to extract a value of type `T` from text. It's lazy - it only does work when you call `.parse()`.
+
+**Backtracking**: When a parser fails, the input position automatically rewinds. This lets you try alternative approaches without manually managing state.
+
+```typescript
+const numberOrWord = choice([
+  number,    // Try to parse a number first
+  word       // If that fails, try a word
+]);
+
+// If parsing "hello" as a number fails, it automatically
+// backtracks and tries parsing it as a word
+```
+
+**State Threading**: Each parser receives the current parsing state and returns a new state. This is how the library keeps track of position without you having to manage it.
+
+**Transformation Pipeline**: Use `.map()` to transform results and `.chain()` for conditional parsing:
+
+```typescript
+const evenNumber = number
+  .map(n => n * 2)                    // Transform the result
+  .chain(n => 
+    n % 2 === 0 
+      ? succeed(n) 
+      : fail(`${n} is not even`)      // Conditional logic
+  );
+```
+
+<br />
+
+## ⚠️ Common Gotchas & Troubleshooting
+
+This section covers the most frequent issues you'll encounter and how to solve them.
+
+### 🔄 Left Recursion Infinite Loops
+
+**Problem**: Defining a grammar like `expr = expr + term` causes infinite recursion.
+
+```typescript
+// ❌ This will cause a stack overflow
+const expr = choice([
+  sequence([expr, str('+'), term]),  // expr refers to itself immediately
+  term
+]);
+```
+
+**Solution**: Use `leftRecursive` for left-associative expressions:
+
+```typescript
+// ✅ This works correctly
+const expr = leftRecursive(() => choice([
+  sequence([expr, str('+'), term], ([left, , right]) => left + right),
+  term
+]));
+```
+
+**Why it happens**: JavaScript evaluates `expr` immediately, creating an infinite loop before any parsing begins.
+
+### 🐌 Performance Issues with Backtracking
+
+**Problem**: Complex grammars with lots of backtracking can be slow, especially with repeated patterns.
+
+```typescript
+// ❌ This can be slow on large inputs
+const inefficientParser = choice([
+  sequence([word, str(','), word, str(','), word]),
+  sequence([word, str(','), word]),
+  word
+]);
+```
+
+**Solution**: Use `memo()` for expensive parsers or restructure to reduce backtracking:
+
+```typescript
+// ✅ Memoized version
+const memoizedWord = memo(word);
+const efficientParser = sequence([
+  memoizedWord,
+  optional(sequence([str(','), memoizedWord])),
+  optional(sequence([str(','), memoizedWord]))
+]);
+```
+
+### 🔧 Confusing Error Messages
+
+**Problem**: Default error messages are often unhelpful, especially in complex grammars.
+
+```typescript
+// ❌ Error: "Expected 'function' at line 1, column 5"
+const fn = str('function');
+```
+
+**Solutions**: Use `label()` and `context()` to provide better errors:
+
+```typescript
+// ✅ Better error reporting
+const fn = label(str('function'), 'function keyword');
+const declaration = context(
+  sequence([fn, identifier, str('(')]),
+  'parsing function declaration'
+);
+
+// Now you get: "Expected function keyword at line 1, column 5 while parsing function declaration"
+```
+
+### 🧹 Whitespace Handling Confusion
+
+**Problem**: Forgetting to handle whitespace leads to brittle parsers.
+
+```typescript
+// ❌ Breaks with extra spaces
+const assignment = sequence([
+  str('let'),
+  identifier,
+  str('='),
+  number
+]);
+
+assignment.parse('let x = 42');    // ✅ Works
+assignment.parse('let  x  =  42'); // ❌ Fails
+```
+
+**Solution**: Use `lexeme()` consistently:
+
+```typescript
+// ✅ Handles whitespace gracefully
+const assignment = sequence([
+  lexeme(str('let')),
+  lexeme(identifier),
+  lexeme(str('=')),
+  number
+]);
+```
+
+### 🎯 TypeScript Type Inference Issues
+
+**Problem**: TypeScript can't infer complex parser types, leading to `any` types.
+
+```typescript
+// ❌ Results in Parser<any>
+const complexParser = sequence([
+  str('data'),
+  choice([str('number'), str('string')]),
+  str(':'),
+  choice([number, stringLiteral])
+]);
+```
+
+**Solution**: Use `as const` and explicit type annotations:
+
+```typescript
+// ✅ Properly typed
+const complexParser = sequence([
+  str('data'),
+  choice([str('number'), str('string')]),
+  str(':'),
+  choice([number, stringLiteral])
+] as const, (results) => {
+  const [, type, , value] = results;
+  return { type, value };
+});
+```
+
+### 💾 Memory Issues with Large Inputs
+
+**Problem**: Parsing very large files can cause memory issues due to string slicing.
+
+**Solution**: Use streaming approaches or parse in chunks:
+
+```typescript
+// For large files, consider parsing line by line
+const lineParser = sequence([
+  regex(/[^\n]*/),  // Everything except newline
+  str('\n')
+]);
+
+const manyLines = lineParser.many();
+```
+
+### 🔄 Recursive Parser Definition Order
+
+**Problem**: Circular dependencies between parsers cause initialization issues.
+
+```typescript
+// ❌ ReferenceError: Cannot access 'expression' before initialization
+const factor = choice([number, sequence([str('('), expression, str(')')])]);
+const expression = choice([factor, sequence([factor, str('+'), expression])]);
+```
+
+**Solution**: Use `lazy()` to defer evaluation:
+
+```typescript
+// ✅ Works correctly
+const factor = choice([
+  number, 
+  sequence([str('('), lazy(() => expression), str(')')])
+]);
+
+const expression = choice([
+  factor, 
+  sequence([factor, str('+'), lazy(() => expression)])
+]);
+```
+
+### 🎪 Choice Order Matters
+
+**Problem**: Parser order in `choice()` affects results due to left-to-right evaluation.
+
+```typescript
+// ❌ 'catch' will never be matched because 'cat' succeeds first
+const keyword = choice([
+  str('cat'),
+  str('catch'),
+  str('car')
+]);
+```
+
+**Solution**: Order from most specific to least specific:
+
+```typescript
+// ✅ Correct order
+const keyword = choice([
+  str('catch'),  // More specific first
+  str('cat'),
+  str('car')
+]);
+```
+
+### 🛟 Losing Type Safety
+
+**Problem**: Your parsers return overly generic types like `string` or `any`, losing the precise type information that makes TypeScript useful.
+
+**Common Causes**:
+
+1. **`regex()` always returns `string`** - even when you know the exact pattern:
+```typescript
+// ❌ Returns Parser<string>, not Parser<'true' | 'false'>
+const booleanRegex = regex(/true|false/);
+
+// ✅ Better: use choice() for literal types
+const booleanParser = choice([str('true'), str('false')]);
+// Returns Parser<'true' | 'false'>
+```
+
+2. **Missing `as const` in `sequence()`**:
+```typescript
+// ❌ TypeScript can't infer the exact tuple type
+const declaration = sequence([
+  str('let'),
+  identifier,
+  str('='),
+  number
+]);
+// Results in Parser<(string | number)[]> - not very useful!
+
+// ✅ Use `as const` for precise tuple types
+const declaration = sequence([
+  str('let'),
+  identifier, 
+  str('='),
+  number
+] as const);
+// Results in Parser<['let', string, '=', number]>
+```
+
+3. **Generic inference issues with transformations**:
+```typescript
+// ❌ TypeScript loses track of the types
+const parser = sequence([str('count'), number], (results) => {
+  // results is inferred as (string | number)[]
+  return { type: 'count', value: results[1] }; // Type error!
+});
+
+// ✅ Use proper generic annotations
+const parser = sequence(
+  [str('count'), number] as const,
+  ([keyword, value]: ['count', number]) => ({
+    type: 'count' as const,
+    value
+  })
+);
+```
+
+**Solutions**:
+
+**For specific string patterns**, use `choice()` instead of `regex()`:
+```typescript
+// Instead of regex(/GET|POST|PUT|DELETE/)
+const httpMethod = choice([
+  str('GET'),
+  str('POST'), 
+  str('PUT'),
+  str('DELETE')
+]); // Parser<'GET' | 'POST' | 'PUT' | 'DELETE'>
+```
+
+**Use `as const` everywhere in `sequence()`**:
+```typescript
+// Always do this
+const parser = sequence([a, b, c] as const, ([a, b, c]) => {
+  // Now a, b, c have their precise types
+});
+```
+
+**Explicitly type your transformation functions**:
+```typescript
+const assignment = sequence(
+  [str('let'), identifier, str('='), number] as const,
+  ([_let, name, _eq, value]: ['let', string, '=', number]) => ({
+    type: 'assignment' as const,
+    name,
+    value
+  })
+);
+// Results in Parser<{ type: 'assignment', name: string, value: number }>
+```
+
+**When to use the `into` parameter vs `.map()`**:
+```typescript
+// ✅ Use `into` parameter when transforming sequence results
+const parser1 = sequence(
+  [str('user'), str(':'), identifier] as const,
+  ([, , name]) => ({ type: 'user', name })
+);
+
+// ✅ Use `.map()` for simpler transformations
+const parser2 = number.map(n => n * 2);
+
+// ✅ Use `.chain()` when the next parser depends on the result
+const lengthPrefixed = number.chain(length =>
+  regex(new RegExp(`.{${length}}`))
+);
+```
+
+### 🔍 Debugging Parser Failures
+
+When a parser fails, here's how to debug it:
+
+1. **Use `console.log`** with intermediate parsers
+2. **Add `label()` calls** to identify which part failed
+3. **Test components in isolation** before combining
+4. **Use the browser debugger** to step through parser execution
+
+```typescript
+// Debugging example
+const debugParser = sequence([
+  label(str('let'), 'let keyword'),
+  label(lexeme(identifier), 'variable name'),
+  label(str('='), 'equals sign'),
+  label(number, 'number value')
+]);
+
+// Now failures will clearly indicate which part failed
+```
 
 <br />
 
@@ -211,10 +660,6 @@ For more complex grammars, especially recursive ones.
 | **`lookahead(p)`**| `<T>(p: Parser<T>) => Parser<T>` | Succeeds if `p` would succeed, but consumes no input. |
 | **`notFollowedBy(p)`**| `(parser: Parser<any>) => Parser<null>` | Succeeds if `p` would fail, consuming no input. |
 
-Excellent idea. A section with practical, reusable patterns is one of the most valuable parts of a library's documentation. Here it is, written in the same educational style.
-
----
-
 <br />
 
 ## 💡 Common Patterns & Helpful Examples
@@ -318,7 +763,6 @@ const simpleAssignment = sequence(
   ([, nameNode, , valueNode]) => ({
     type: 'Assignment',
     name: nameNode,
-
     value: valueNode,
   })
 );
@@ -404,9 +848,7 @@ console.log(expressionParser.parse("10 + 5 - 3")); // -> 12
 console.log(expressionParser.parse("100"));          // -> 100
 ```
 
-
 <br />
-
 
 ## 📜 License
 
