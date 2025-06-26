@@ -135,6 +135,8 @@ export interface ParseOptions {
   readonly consumeAll?: boolean;
 }
 
+class ParserError extends Error {}
+
 /**
  * The core Parser class. A `Parser<T>` is an object that wraps a function
  * that knows how to parse a slice of an input string and produce a value of
@@ -160,13 +162,13 @@ export class Parser<T> {
    * If parsing is successful and (by default) the entire input is consumed,
    * it returns the parsed value of type `T`.
    *
-   * On failure, it throws a detailed `Error` with a message that includes
+   * On failure, it throws a detailed `ParserError` with a message that includes
    * the line and column number of the failure, making debugging much easier.
    *
    * @param input The string to parse.
    * @param options Configuration for the parsing process.
    * @returns The successfully parsed value of type `T`.
-   * @throws {Error} if the parser fails or does not consume all input (when `consumeAll` is true).
+   * @throws {ParserError} if the parser fails or does not consume all input (when `consumeAll` is true).
    *
    * @example
    * const helloParser = str("Hello");
@@ -186,11 +188,11 @@ export class Parser<T> {
       const lines = input.substring(0, index).split('\n');
       const line = lines.length;
       const col = lines[lines.length - 1].length + 1;
-      throw new Error(`Parse error at line ${line}, col ${col}: ${result.message}`);
+      throw new ParserError(`Parse error at line ${line}, col ${col}: ${result.message}`);
     }
 
     if (options.consumeAll && result.state.index !== input.length) {
-      throw new Error(`Parse error: Parser did not consume entire input. Stopped at index ${result.state.index}.`);
+      throw new ParserError(`Parse error: Parser did not consume entire input. Stopped at index ${result.state.index}.`);
     }
 
     return result.value;
@@ -310,7 +312,7 @@ export class Parser<T> {
    * digits.parse("123"); // -> ["1", "2", "3"]
    *
    * // This will fail because it needs at least one match.
-   * // digits.parse("abc"); // Throws Error
+   * // digits.parse("abc"); // Throws ParserError
    *
    * // With an `into` function to join the strings.
    * const numberString = digitParser.many1(results => results.join(''));
@@ -451,7 +453,7 @@ export const succeed = <T>(value: T): Parser<T> => new Parser(state => success(v
  *
  * @example
  * const aThenFail = str("a").chain(() => fail("Something went wrong after 'a'"));
- * // aThenFail.parse("a"); // Throws Error: "...Something went wrong after 'a'"
+ * // aThenFail.parse("a"); // Throws ParserError: "...Something went wrong after 'a'"
  */
 export const fail = (message: string): Parser<never> => new Parser(state => failure(message, state));
 
@@ -580,7 +582,7 @@ export const whitespace: Parser<string> = regex(/\s+/);
  * @example
  * const fullNumber = number.keepLeft(eof);
  * fullNumber.parse("123"); // -> 123
- * // fullNumber.parse("123a"); // Throws Error: "...Expected end of file"
+ * // fullNumber.parse("123a"); // Throws ParserError: "...Expected end of file"
  */
 export const eof: Parser<null> = new Parser(state =>
   state.index === state.input.length
@@ -771,7 +773,7 @@ export const sepBy = <T, S, U = T[]>(
  *
  * listOfNumbers.parse("1, 2, 3"); // -> [1, 2, 3]
  * listOfNumbers.parse("42");      // -> [42]
- * // listOfNumbers.parse("");     // Throws Error
+ * // listOfNumbers.parse("");     // Throws ParserError
  */
 export const sepBy1 = <T, S, U = T[]>(
   p: Parser<T>,
@@ -844,8 +846,8 @@ export const optional = <T>(parser: Parser<T>): Parser<T | null> => parser.optio
  * const labeledIpPart = label(ipPart, "an IP address part (0-255)");
  *
  * // Throws with a much clearer error message.
- * // labeledIpPart.parse("abc"); // Error: "...an IP address part (0-255)"
- * // instead of the default:     // Error: "...Expected to match regex /[0-9]{1,3}/"
+ * // labeledIpPart.parse("abc"); // ParserError: "...an IP address part (0-255)"
+ * // instead of the default:     // ParserError: "...Expected to match regex /[0-9]{1,3}/"
  */
 export const label = <T>(parser: Parser<T>, message: string): Parser<T> =>
   new Parser(state => {
@@ -868,7 +870,7 @@ export const label = <T>(parser: Parser<T>, message: string): Parser<T> =>
  * const numberParser = context(number, "parsing a value");
  * const assignmentParser = context(sequence([regex(/[a-z]+/), str("="), numberParser]), "parsing an assignment");
  *
- * // Throws Error: "...[parsing an assignment] [parsing a value] Expected to match regex /[0-9]+/"
+ * // Throws ParserError: "...[parsing an assignment] [parsing a value] Expected to match regex /[0-9]+/"
  * // assignmentParser.parse("x=y");
  */
 export const context = <T>(parser: Parser<T>, ctx: string): Parser<T> =>
@@ -921,7 +923,7 @@ export function astNode<T, L extends string>(label: L, parser: Parser<T>): Parse
  *   "Expected an even digit"
  * );
  * evenDigit.parse("4"); // -> 4
- * // evenDigit.parse("3"); // Throws Error: "...Expected an even digit"
+ * // evenDigit.parse("3"); // Throws ParserError: "...Expected an even digit"
  */
 export function filter<T>(parser: Parser<T>, predicate: (value: T) => boolean, message = "filter failed"): Parser<T> {
   return parser.chain(value =>
@@ -967,7 +969,7 @@ export const lookahead = <T>(parser: Parser<T>): Parser<T> =>
  * // Parse the keyword "if" but not "iffy"
  * const ifKeyword = str("if").keepLeft(notFollowedBy(regex(/[a-zA-Z0-9_]/)));
  * ifKeyword.parse("if (x)"); // -> "if"
- * // ifKeyword.parse("iffy"); // Throws Error
+ * // ifKeyword.parse("iffy"); // Throws ParserError
  */
 export const notFollowedBy = (parser: Parser<any>): Parser<null> =>
   new Parser(state => {
@@ -1083,10 +1085,10 @@ export function genParser<T>(gen: () => Generator<Parser<any>, T, any>): Parser<
  * a formal grammar definition string (e.g., EBNF).
  * **This is not implemented.**
  *
- * @throws {Error} always.
+ * @throws {ParserError} always.
  */
 export function fromGrammar(grammar: string): never {
-  throw new Error("fromGrammar is a placeholder and not implemented. Please use the provided combinators.");
+  throw new ParserError("fromGrammar is a placeholder and not implemented. Please use the provided combinators.");
 }
 
 /**

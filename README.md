@@ -107,7 +107,7 @@ Parser combinators offer a fundamentally different approach. The core insight is
 
 The magic of parser combinators isn't abstract—it's a concrete, systematic approach to building parsers. Instead of writing complex parsing logic from scratch, you build sophisticated parsers by combining simple, reusable pieces. Let's see exactly how this works through practical examples.
 
-#### 1. 🧱 Atomic Parsers: The Building Blocks
+##### 1. 🧱 Atomic Parsers: The Building Blocks
 
 **Atomic parsers** are the foundation—simple parsers that recognize basic patterns. Think of them as LEGO blocks: individually simple, but powerful when combined.
 
@@ -118,6 +118,7 @@ import { str } from '@doeixd/combi-parse';
 
 // An atomic parser that matches the exact string "hello"
 const helloParser = str('hello');
+// 🎯 Type safety gained: Parser<'hello'> - TypeScript knows the exact string
 
 // Let's see what happens when we use it
 console.log(helloParser.parse('hello world'));
@@ -139,6 +140,7 @@ import { regex } from '@doeixd/combi-parse';
 
 // An atomic parser that matches one or more digits
 const digitSequence = regex(/\d+/);
+// ⚠️ Type safety lost: Parser<string> - regex always returns generic string
 
 console.log(digitSequence.parse('123abc'));
 // Output: '123'
@@ -154,6 +156,7 @@ import { charClass } from '@doeixd/combi-parse';
 
 // An atomic parser that matches any single digit
 const singleDigit = charClass('Digit');
+// 🎯 Type safety gained: Parser<'0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'>
 
 console.log(singleDigit.parse('7'));
 // Output: '7' (with type '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9')
@@ -167,7 +170,7 @@ console.log(whitespaceChar.parse(' '));
 
 **Key Insight**: Each atomic parser has **one job**—recognizing a specific pattern. They're predictable, testable, and composable.
 
-#### 2. 🔧 Combinator Functions: The Assembly Instructions
+##### 2. 🔧 Combinator Functions: The Assembly Instructions
 
 **Combinator functions** take simple parsers and combine them into more sophisticated ones. They're like assembly instructions that tell you how to connect your LEGO blocks.
 
@@ -182,6 +185,7 @@ const greeting = sequence([
   str(' '),
   regex(/[A-Z][a-z]+/)  // Capitalized name
 ] as const);
+// 🎯 Type safety gained: `as const` preserves exact tuple type
 
 console.log(greeting.parse('Hello Alice'));
 // Output: ['Hello', ' ', 'Alice']
@@ -267,7 +271,7 @@ console.log(emailParser.parse('john@example.com'));
 
 **Key Insight**: Combinators don't just stick parsers together—they define **how** to combine them (sequentially, as alternatives, with repetition, etc.).
 
-#### 3. ⚡ Pure Functions: Predictable Input → Output
+##### 3. ⚡ Pure Functions: Predictable Input → Output
 
 **Every parser is a pure function**—given the same input, it always produces the same result. No hidden state, no side effects, no surprises.
 
@@ -327,6 +331,7 @@ import { regex } from '@doeixd/combi-parse';
 
 // Pure transformation: string → number
 const numberParser = regex(/\d+/).map(str => parseInt(str, 10));
+// 🎯 Type safety transformed: Parser<string> becomes Parser<number>
 
 console.log(numberParser.parse('42'));
 // Output: 42 (number, not string)
@@ -339,7 +344,7 @@ console.log(stringParser.parse('42'));
 
 **Key Insight**: Pure functions make parsers **predictable** and **composable**. You can reason about them in isolation and combine them fearlessly.
 
-#### 4. 🔄 Automatic Plumbing: State, Backtracking, and Error Handling
+##### 4. 🔄 Automatic Plumbing: State, Backtracking, and Error Handling
 
 **The combinator library handles all the messy details** so you don't have to. It automatically manages position tracking, tries alternatives when parsing fails, and provides helpful error messages.
 
@@ -465,7 +470,7 @@ console.log(expression.parse('1 + 2 + 3'));
 
 **Key Insight**: The combinator library is like having an **expert assistant**—it handles all the tedious, error-prone work while you focus on describing **what** you want to parse, not **how** to manage the parsing process.
 
-#### 🎯 Putting It All Together: A Complete Example
+##### 🎯 Putting It All Together: A Complete Example
 
 Let's see all four concepts work together in a real parser:
 
