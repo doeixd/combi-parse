@@ -1,10 +1,10 @@
-# Combi-Parse
-A friendly, type-safe parser combinator library for TypeScript.
-
 [![NPM Version](https://img.shields.io/npm/v/@doeixd/combi-parse.svg)](https://www.npmjs.com/package/@doeixd/combi-parse)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TypeScript](https://img.shields.io/badge/%3C/%3E-TypeScript-%230074c1.svg)](http://www.typescriptlang.org/)
+
+# Combi-Parse
+A friendly, type-safe parser combinator library for TypeScript.
 
 This library provides a set of tools to build complex parsers from simple, reusable functions ("combinators"). It's designed to transform structured text into meaningful data structures, like Abstract Syntax Trees (ASTs), with a strong emphasis on leveraging TypeScript's type system to make your parsers robust and your development experience smooth.
 
