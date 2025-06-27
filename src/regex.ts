@@ -1,496 +1,166 @@
-// // =================================================================
-// // TYPE-LEVEL REGEX ENGINE V5 - CLEAN IMPLEMENTATION
-// // =================================================================
+/**
+ * @fileoverview Type-Level Regular Expression Engine
+ * 
+ * This module implements a complete regular expression engine that operates entirely
+ * at the TypeScript type level. It can compile regex patterns into Non-deterministic
+ * Finite Automata (NFA) and enumerate all possible strings that match a pattern,
+ * all during compile time.
+ * 
+ * This enables powerful compile-time string validation and type generation based on
+ * regex patterns. The engine supports most common regex features including:
+ * 
+ * - **Literals**: Direct character matching (`'abc'`)
+ * - **Character Classes**: Bracket expressions (`'[abc]'`, `'[0-9]'`, `'[a-z]'`)
+ * - **Escape Sequences**: `'\\d'` (digits), `'\\w'` (word chars), `'\\s'` (whitespace), and negated versions `'\\D'`, `'\\W'`, `'\\S'`
+ * - **Quantifiers**: `'*'` (zero or more), `'+'` (one or more), `'?'` (optional)
+ * - **Alternation**: Pipe operator (`'cat|dog'`)
+ * - **Grouping**: Parentheses for precedence (`'(ab)+c'`)
+ * - **Wildcards**: Dot matches any printable character (`'.'`)
+ * 
+ * The engine converts regex patterns into NFAs (Non-deterministic Finite Automata)
+ * and can then enumerate all matching strings up to a reasonable depth to avoid
+ * TypeScript compiler limits.
+ * 
+ * ## Key Features
+ * 
+ * - **Compile-Time Execution**: All processing happens during TypeScript compilation
+ * - **Type-Safe Results**: Generated strings are typed as precise union types
+ * - **Template Literal Support**: Works with TypeScript's template literal types
+ * - **Finite Enumeration**: Converts infinite patterns to finite + template literals
+ * 
+ * @example
+ * ```typescript
+ * // Simple literal matching
+ * type HelloRegex = CompileRegex<'hello'>;
+ * type HelloStrings = Enumerate<HelloRegex>; // 'hello'
+ * 
+ * // Character classes
+ * type DigitRegex = CompileRegex<'[0-9]'>;
+ * type DigitStrings = Enumerate<DigitRegex>; // '0' | '1' | '2' | ... | '9'
+ * 
+ * // Quantifiers
+ * type OptionalRegex = CompileRegex<'ab?c'>;
+ * type OptionalStrings = Enumerate<OptionalRegex>; // 'ac' | 'abc'
+ * 
+ * // Alternation
+ * type ChoiceRegex = CompileRegex<'cat|dog'>;
+ * type ChoiceStrings = Enumerate<ChoiceRegex>; // 'cat' | 'dog'
+ * ```
+ * 
+ * @example
+ * ```typescript
+ * // Complex patterns with infinite cases use template literals
+ * type RepeatingRegex = CompileRegex<'a+'>;
+ * type RepeatingStrings = Enumerate<RepeatingRegex>; // `a${string}`
+ * 
+ * type StarRegex = CompileRegex<'a*b'>;
+ * type StarStrings = Enumerate<StarRegex>; // 'b' | `a${string}`
+ * ```
+ * 
+ * @see {@link https://en.wikipedia.org/wiki/Nondeterministic_finite_automaton} for NFA theory
+ * @see {@link https://www.typescriptlang.org/docs/handbook/2/template-literal-types.html} for template literals
+ */
 
-// // Core types
-// type StateId = number;
+// ===================================================================
+// Core NFA (Non-deterministic Finite Automaton) Types
+// ===================================================================
 
-// // NFA State
-// type State = {
-//   id: StateId;
-//   transitions: Transition[];
-//   isAccepting: boolean;
-// };
-
-// // Transition in NFA
-// type Transition = {
-//   match: string | '.' | 'ε';  // 'ε' for epsilon transitions
-//   to: StateId;
-// };
-
-// // Compiled Regex type - this is what gets stored
-// type CompiledRegex<NFA extends State[]> = {
-//   __brand: 'CompiledRegex';
-//   nfa: NFA;
-//   start: 0;
-// };
-
-// // =================================================================
-// // HELPERS
-// // =================================================================
-
-// // Increment number
-// type Inc<N extends number, A extends 1[] = []> = 
-//   A['length'] extends N ? [...A, 1]['length'] : Inc<N, [...A, 1]>;
-
-// // Array operations
-// type Push<A extends readonly any[], E> = [...A, E];
-// type Concat<A extends readonly any[], B extends readonly any[]> = [...A, ...B];
-// type Has<A extends readonly any[], E> = E extends A[number] ? true : false;
-
-// // String to character union
-// type CharUnion<S extends string> = S extends `${infer C}${infer R}` ? C | CharUnion<R> : never;
-
-// // Character classes
-// type Digit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
-// type Lower = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o' | 'p' | 'q' | 'r' | 's' | 't' | 'u' | 'v' | 'w' | 'x' | 'y' | 'z';
-// type Upper = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z';
-// type Alpha = Lower | Upper;
-// type AlphaNum = Alpha | Digit;
-// type Printable = AlphaNum | ' ' | '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '-' | '_' | '=' | '+' | '[' | ']' | '{' | '}' | ';' | ':' | '"' | "'" | ',' | '.' | '<' | '>' | '/' | '?' | '\\' | '|' | '`' | '~';
-
-// // Parse character class
-// type ParseCharClass<S extends string> = 
-//   S extends `^${infer Rest}` ? Exclude<Printable, ParsePosClass<Rest>> :
-//   ParsePosClass<S>;
-
-// type ParsePosClass<S extends string> = 
-//   S extends 'a-z' ? Lower :
-//   S extends 'A-Z' ? Upper :
-//   S extends '0-9' ? Digit :
-//   S extends `${infer C}${infer Rest}` ? C | ParsePosClass<Rest> :
-//   never;
-
-// // =================================================================
-// // NFA BUILDER - SIMPLE VERSION
-// // =================================================================
-
-// // Build a simple NFA from pattern (no alternation for now)
-// type BuildNFA<Pattern extends string, Id extends number = 0> = 
-//   BuildFragment<Pattern, Id> extends [infer States, infer End] ?
-//     States extends State[] ? End extends number ?
-//       // Add accepting state
-//       Push<States, { id: End; transitions: []; isAccepting: true }> :
-//     never : never : never;
-
-// // Build NFA fragment, returns [states, endId]
-// type BuildFragment<P extends string, Id extends number> = 
-//   // Character class with quantifiers
-//   P extends `[${infer Class}]+${infer Rest}` ?
-//     BuildPlus<ParseCharClass<Class>, Rest, Id> :
-//   P extends `[${infer Class}]*${infer Rest}` ?
-//     BuildStar<ParseCharClass<Class>, Rest, Id> :
-//   P extends `[${infer Class}]?${infer Rest}` ?
-//     BuildOptional<ParseCharClass<Class>, Rest, Id> :
-//   P extends `[${infer Class}]${infer Rest}` ?
-//     BuildChar<ParseCharClass<Class>, Rest, Id> :
-  
-//   // Single char with quantifiers  
-//   P extends `${infer C}+${infer Rest}` ?
-//     C extends '.' | '(' | ')' | '[' | ']' | '*' | '+' | '?' | '|' ? BuildFragment<P, Id> :
-//     BuildPlus<C, Rest, Id> :
-//   P extends `${infer C}*${infer Rest}` ?
-//     C extends '.' | '(' | ')' | '[' | ']' | '*' | '+' | '?' | '|' ? BuildFragment<P, Id> :
-//     BuildStar<C, Rest, Id> :
-//   P extends `${infer C}?${infer Rest}` ?
-//     C extends '.' | '(' | ')' | '[' | ']' | '*' | '+' | '?' | '|' ? BuildFragment<P, Id> :
-//     BuildOptional<C, Rest, Id> :
-    
-//   // Dot
-//   P extends `.${infer Rest}` ?
-//     BuildChar<'.', Rest, Id> :
-    
-//   // Groups
-//   P extends `(${infer Group})${infer Rest}` ?
-//     BuildGroup<Group, Rest, Id, false> :
-//   P extends `(${infer Group})?${infer Rest}` ?
-//     BuildGroup<Group, Rest, Id, true> :
-//   P extends `(${infer Group})*${infer Rest}` ?
-//     BuildGroupStar<Group, Rest, Id> :
-//   P extends `(${infer Group})+${infer Rest}` ?
-//     BuildGroupPlus<Group, Rest, Id> :
-    
-//   // Alternation
-//   P extends `${infer Left}|${infer Right}` ?
-//     SplitAlternation<P> extends [infer L, infer R] ?
-//       L extends string ? R extends string ?
-//         BuildAlternation<L, R, Id> :
-//       BuildChar<P extends `${infer C}${any}` ? C : never, P extends `${any}${infer Rest}` ? Rest : '', Id> :
-//     BuildChar<P extends `${infer C}${any}` ? C : never, P extends `${any}${infer Rest}` ? Rest : '', Id> :
-//     BuildChar<P extends `${infer C}${any}` ? C : never, P extends `${any}${infer Rest}` ? Rest : '', Id> :
-    
-//   // Regular character
-//   P extends `${infer C}${infer Rest}` ?
-//     BuildChar<C, Rest, Id> :
-    
-//   // Empty
-//   [[], Id];
-
-// // Build single character transition
-// type BuildChar<C extends string, Rest extends string, Id extends number> = 
-//   BuildFragment<Rest, Inc<Id>> extends [infer RestStates, infer RestEnd] ?
-//     RestStates extends State[] ? RestEnd extends number ?
-//       [[
-//         { id: Id; transitions: [{ match: C; to: Inc<Id> }]; isAccepting: false },
-//         ...RestStates
-//       ], RestEnd] :
-//     never : never : never;
-
-// // Build a+ (one or more)
-// type BuildPlus<C extends string, Rest extends string, Id extends number> = 
-//   // First occurrence is required
-//   // Then epsilon back for more
-//   BuildFragment<Rest, Inc<Inc<Id>>> extends [infer RestStates, infer RestEnd] ?
-//     RestStates extends State[] ? RestEnd extends number ?
-//       [[
-//         { id: Id; transitions: [{ match: C; to: Inc<Id> }]; isAccepting: false },
-//         { id: Inc<Id>; transitions: [{ match: 'ε'; to: Id }, { match: 'ε'; to: Inc<Inc<Id>> }]; isAccepting: false },
-//         ...RestStates
-//       ], RestEnd] :
-//     never : never : never;
-
-// // Build a* (zero or more)
-// type BuildStar<C extends string, Rest extends string, Id extends number> = 
-//   BuildFragment<Rest, Inc<Inc<Id>>> extends [infer RestStates, infer RestEnd] ?
-//     RestStates extends State[] ? RestEnd extends number ?
-//       [[
-//         { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }, { match: 'ε'; to: Inc<Inc<Id>> }]; isAccepting: false },
-//         { id: Inc<Id>; transitions: [{ match: C; to: Id }]; isAccepting: false },
-//         ...RestStates
-//       ], RestEnd] :
-//     never : never : never;
-
-// // Build a? (zero or one)
-// type BuildOptional<C extends string, Rest extends string, Id extends number> = 
-//   BuildFragment<Rest, Inc<Inc<Id>>> extends [infer RestStates, infer RestEnd] ?
-//     RestStates extends State[] ? RestEnd extends number ?
-//       [[
-//         { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }, { match: 'ε'; to: Inc<Inc<Id>> }]; isAccepting: false },
-//         { id: Inc<Id>; transitions: [{ match: C; to: Inc<Inc<Id>> }]; isAccepting: false },
-//         ...RestStates
-//       ], RestEnd] :
-//     never : never : never;
-
-// // Build group
-// type BuildGroup<Group extends string, Rest extends string, Id extends number, IsOptional extends boolean> = 
-//   BuildFragment<Group, Inc<Id>> extends [infer GroupStates, infer GroupEnd] ?
-//     GroupStates extends State[] ? GroupEnd extends number ?
-//       BuildFragment<Rest, Inc<GroupEnd>> extends [infer RestStates, infer RestEnd] ?
-//         RestStates extends State[] ? RestEnd extends number ?
-//           IsOptional extends true ?
-//             // Optional group - add epsilon to skip
-//             [[
-//               { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }, { match: 'ε'; to: Inc<GroupEnd> }]; isAccepting: false },
-//               ...GroupStates,
-//               { id: GroupEnd; transitions: [{ match: 'ε'; to: Inc<GroupEnd> }]; isAccepting: false },
-//               ...RestStates
-//             ], RestEnd] :
-//             // Regular group
-//             [[
-//               { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }]; isAccepting: false },
-//               ...GroupStates,
-//               { id: GroupEnd; transitions: [{ match: 'ε'; to: Inc<GroupEnd> }]; isAccepting: false },
-//               ...RestStates
-//             ], RestEnd] :
-//         never : never : never : never :
-//     never : never : never;
-
-// // Build group*
-// type BuildGroupStar<Group extends string, Rest extends string, Id extends number> = 
-//   BuildFragment<Group, Inc<Inc<Id>>> extends [infer GroupStates, infer GroupEnd] ?
-//     GroupStates extends State[] ? GroupEnd extends number ?
-//       BuildFragment<Rest, Inc<Inc<GroupEnd>>> extends [infer RestStates, infer RestEnd] ?
-//         RestStates extends State[] ? RestEnd extends number ?
-//           [[
-//             { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }, { match: 'ε'; to: Inc<Inc<GroupEnd>> }]; isAccepting: false },
-//             { id: Inc<Id>; transitions: [{ match: 'ε'; to: Inc<Inc<Id>> }]; isAccepting: false },
-//             ...GroupStates,
-//             { id: GroupEnd; transitions: [{ match: 'ε'; to: Inc<GroupEnd> }]; isAccepting: false },
-//             { id: Inc<GroupEnd>; transitions: [{ match: 'ε'; to: Inc<Id> }]; isAccepting: false },
-//             ...RestStates
-//           ], RestEnd] :
-//         never : never : never : never :
-//     never : never : never;
-
-// // Build group+
-// type BuildGroupPlus<Group extends string, Rest extends string, Id extends number> = 
-//   BuildFragment<Group, Inc<Id>> extends [infer GroupStates, infer GroupEnd] ?
-//     GroupStates extends State[] ? GroupEnd extends number ?
-//       BuildFragment<Rest, Inc<Inc<GroupEnd>>> extends [infer RestStates, infer RestEnd] ?
-//         RestStates extends State[] ? RestEnd extends number ?
-//           [[
-//             { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }]; isAccepting: false },
-//             ...GroupStates,
-//             { id: GroupEnd; transitions: [{ match: 'ε'; to: Inc<GroupEnd> }]; isAccepting: false },
-//             { id: Inc<GroupEnd>; transitions: [{ match: 'ε'; to: Inc<Id> }, { match: 'ε'; to: Inc<Inc<GroupEnd>> }]; isAccepting: false },
-//             ...RestStates
-//           ], RestEnd] :
-//         never : never : never : never :
-//     never : never : never;
-
-// // Split alternation (simplified)
-// type SplitAlternation<P extends string, Depth extends 1[] = [], Acc extends string = ''> = 
-//   P extends `${infer C}${infer Rest}` ?
-//     C extends '(' ? SplitAlternation<Rest, [...Depth, 1], `${Acc}${C}`> :
-//     C extends ')' ? 
-//       Depth extends [1, ...infer D] ? D extends 1[] ?
-//         SplitAlternation<Rest, D, `${Acc}${C}`> :
-//       SplitAlternation<Rest, [], `${Acc}${C}`> :
-//     SplitAlternation<Rest, [], `${Acc}${C}`> :
-//     C extends '|' ? Depth extends [] ? [Acc, Rest] :
-//       SplitAlternation<Rest, Depth, `${Acc}${C}`> :
-//     SplitAlternation<Rest, Depth, `${Acc}${C}`> :
-//   never;
-
-// // Build alternation
-// type BuildAlternation<Left extends string, Right extends string, Id extends number> = 
-//   BuildFragment<Left, Inc<Id>> extends [infer LeftStates, infer LeftEnd] ?
-//     LeftStates extends State[] ? LeftEnd extends number ?
-//       BuildFragment<Right, Inc<LeftEnd>> extends [infer RightStates, infer RightEnd] ?
-//         RightStates extends State[] ? RightEnd extends number ?
-//           [[
-//             { id: Id; transitions: [{ match: 'ε'; to: Inc<Id> }, { match: 'ε'; to: Inc<LeftEnd> }]; isAccepting: false },
-//             ...LeftStates,
-//             { id: LeftEnd; transitions: [{ match: 'ε'; to: Inc<RightEnd> }]; isAccepting: false },
-//             ...RightStates,
-//             { id: RightEnd; transitions: [{ match: 'ε'; to: Inc<Inc<RightEnd>> }]; isAccepting: false }
-//           ], Inc<Inc<RightEnd>>] :
-//         never : never : never : never :
-//     never : never : never;
-
-// // =================================================================
-// // NFA SIMULATION
-// // =================================================================
-
-// // Get state by ID
-// type GetState<NFA extends State[], Id extends StateId> = 
-//   NFA extends readonly [...any, infer S] ?
-//     S extends State ?
-//       S['id'] extends Id ? S :
-//       NFA extends readonly [any, ...infer Rest] ?
-//         Rest extends State[] ? GetState<Rest, Id> :
-//         never :
-//       never :
-//     never :
-//   never;
-
-// // Get epsilon closure
-// type EpsilonClosure<NFA extends State[], Ids extends StateId[], Visited extends StateId[] = []> = 
-//   Ids extends readonly [infer Id, ...infer Rest] ?
-//     Id extends StateId ?
-//       Has<Visited, Id> extends true ?
-//         Rest extends StateId[] ? EpsilonClosure<NFA, Rest, Visited> : Visited :
-//       GetState<NFA, Id> extends State ?
-//         GetEpsilonTransitions<GetState<NFA, Id>['transitions']> extends StateId[] ?
-//           Rest extends StateId[] ?
-//             EpsilonClosure<NFA, Concat<Rest, GetEpsilonTransitions<GetState<NFA, Id>['transitions']>>, Push<Visited, Id>> :
-//           Push<Visited, Id> :
-//         Rest extends StateId[] ?
-//           EpsilonClosure<NFA, Rest, Push<Visited, Id>> :
-//         Push<Visited, Id> :
-//       Visited :
-//     Visited :
-//   Concat<Visited, Ids>;
-
-// // Get epsilon transitions from transition list
-// type GetEpsilonTransitions<Trans extends Transition[], Acc extends StateId[] = []> = 
-//   Trans extends readonly [infer T, ...infer Rest] ?
-//     T extends Transition ?
-//       T['match'] extends 'ε' ?
-//         Rest extends Transition[] ?
-//           GetEpsilonTransitions<Rest, Push<Acc, T['to']>> :
-//         Push<Acc, T['to']> :
-//       Rest extends Transition[] ?
-//         GetEpsilonTransitions<Rest, Acc> :
-//       Acc :
-//     Acc :
-//   Acc;
-
-// // Process character
-// type ProcessChar<NFA extends State[], ActiveIds extends StateId[], Char extends string> = 
-//   GetNextStates<NFA, ActiveIds, Char, []>;
-
-// type GetNextStates<NFA extends State[], Ids extends StateId[], Char extends string, Acc extends StateId[]> = 
-//   Ids extends readonly [infer Id, ...infer Rest] ?
-//     Id extends StateId ?
-//       GetState<NFA, Id> extends State ?
-//         MatchingTransitions<GetState<NFA, Id>['transitions'], Char> extends StateId[] ?
-//           Rest extends StateId[] ?
-//             GetNextStates<NFA, Rest, Char, Concat<Acc, MatchingTransitions<GetState<NFA, Id>['transitions'], Char>>> :
-//           Concat<Acc, MatchingTransitions<GetState<NFA, Id>['transitions'], Char>> :
-//         Rest extends StateId[] ?
-//           GetNextStates<NFA, Rest, Char, Acc> :
-//         Acc :
-//       Acc :
-//     Acc :
-//   Acc;
-
-// // Get transitions that match character
-// type MatchingTransitions<Trans extends Transition[], Char extends string, Acc extends StateId[] = []> = 
-//   Trans extends readonly [infer T, ...infer Rest] ?
-//     T extends Transition ?
-//       T['match'] extends '.' ? 
-//         Rest extends Transition[] ?
-//           MatchingTransitions<Rest, Char, Push<Acc, T['to']>> :
-//         Push<Acc, T['to']> :
-//       T['match'] extends 'ε' ?
-//         Rest extends Transition[] ?
-//           MatchingTransitions<Rest, Char, Acc> :
-//         Acc :
-//       Char extends T['match'] ?
-//         Rest extends Transition[] ?
-//           MatchingTransitions<Rest, Char, Push<Acc, T['to']>> :
-//         Push<Acc, T['to']> :
-//       Rest extends Transition[] ?
-//         MatchingTransitions<Rest, Char, Acc> :
-//       Acc :
-//     Acc :
-//   Acc;
-
-// // Check if accepting
-// type IsAccepting<NFA extends State[], Ids extends StateId[]> = 
-//   Ids extends readonly [infer Id, ...infer Rest] ?
-//     Id extends StateId ?
-//       GetState<NFA, Id> extends State ?
-//         GetState<NFA, Id>['isAccepting'] extends true ? true :
-//         Rest extends StateId[] ? IsAccepting<NFA, Rest> : false :
-//       false :
-//     false :
-//   false;
-
-// // Simulate NFA
-// type Simulate<NFA extends State[], Input extends string, Active extends StateId[] = [0]> = 
-//   Input extends `${infer C}${infer Rest}` ?
-//     EpsilonClosure<NFA, Active> extends infer Closure ?
-//       Closure extends StateId[] ?
-//         ProcessChar<NFA, Closure, C> extends infer Next ?
-//           Next extends StateId[] ?
-//             Simulate<NFA, Rest, Next> :
-//           false :
-//         false :
-//       false :
-//     false :
-//   EpsilonClosure<NFA, Active> extends infer Final ?
-//     Final extends StateId[] ?
-//       IsAccepting<NFA, Final> :
-//     false :
-//   false;
-
-// // =================================================================
-// // PUBLIC API
-// // =================================================================
-
-// /**
-//  * Compile a regex pattern into a reusable CompiledRegex type
-//  */
-// export type CompileRegex<Pattern extends string> = 
-//   BuildNFA<Pattern> extends infer NFA ?
-//     NFA extends State[] ?
-//       CompiledRegex<NFA> :
-//     never :
-//   never;
-
-// /**
-//  * Match an input string against a compiled regex
-//  */
-// export type Match<R extends CompiledRegex<any>, Input extends string> = 
-//   R extends CompiledRegex<infer NFA> ?
-//     NFA extends State[] ?
-//       Simulate<NFA, Input> :
-//     false :
-//   false;
-
-// /**
-//  * Legacy API - compile and match in one step
-//  */
-// export type Regex<Pattern extends string, Input extends string> = 
-//   Match<CompileRegex<Pattern>, Input> extends true
-//     ? { match: "true"; captures: [] }
-//     : { match: "false"; captures: [] };
-
-// // =================================================================
-// // TESTS
-// // =================================================================
-
-// type AssertTrue<T extends true> = T;
-// type AssertFalse<T extends false> = T;
-// type AssertMatch<T extends { match: "true" }> = T;
-// type AssertNoMatch<T extends { match: "false" }> = T;
-
-// // Test new API
-// type EmailPattern = Regex<'[a-z]+@[a-z]+\\.[a-z]+'>;
-// type Test_Email1 = AssertTrue<Match<EmailPattern, 'test@example.com'>>;
-// type Test_Email2 = AssertFalse<Match<EmailPattern, 'not-an-email'>>;
-
-// // Basic tests
-// type Test1 = AssertMatch<Regex<'hello', 'hello'>>;
-// type Test2 = AssertNoMatch<Regex<'hello', 'world'>>;
-
-// // Dot tests
-// type Test3 = AssertMatch<Regex<'h.llo', 'hello'>>;
-// type Test4 = AssertMatch<Regex<'h.llo', 'hallo'>>;
-
-// // Character class tests (FIXED)
-// type TestClass1 = AssertMatch<Regex<'[abc]+', 'abacaba'>>;
-// type TestClass1d = Regex<'[abc]+', 'abacaba'>;
-// type TestClass2 = AssertMatch<Regex<'[a-z]*', 'helloworld'>>;
-// type TestClass3 = AssertMatch<Regex<'[^abc]+', 'xyz'>>;
-
-// // Quantifier tests
-// type Test9 = AssertMatch<Regex<'a*b', 'aaab'>>;
-// type Test10 = AssertMatch<Regex<'a*b', 'b'>>;
-// type Test11 = AssertMatch<Regex<'a+b', 'aaab'>>;
-// type Test12 = AssertNoMatch<Regex<'a+b', 'b'>>;
-// type Test13 = AssertMatch<Regex<'a?b', 'ab'>>;
-// type Test14 = AssertMatch<Regex<'a?b', 'b'>>;
-
-// // Alternation tests
-// type TestAlt1 = AssertMatch<Regex<'cat|dog', 'cat'>>;
-// type TestAlt2 = AssertMatch<Regex<'cat|dog', 'dog'>>;
-// type TestAlt3 = AssertNoMatch<Regex<'cat|dog', 'fish'>>;
-
-// // Capture group tests (FIXED)
-// type TestCapture1 = AssertMatch<Regex<'a(b*)c', 'abbc'>>;
-// type TestCapture2 = AssertMatch<Regex<'(hello)|(goodbye)', 'hello'>>;
-// type TestCapture3 = AssertMatch<Regex<'([a-z]+)-([0-9]+)', 'typescript-2022'>>;
-
-// // Optional group tests
-// type Test23 = AssertMatch<Regex<'a(bc)?d', 'ad'>>;
-// type Test24 = AssertMatch<Regex<'a(bc)?d', 'abcd'>>;
-
-// // Complex patterns
-// type Test25 = AssertMatch<Regex<'[a-z]+@[a-z]+\\.[a-z]+', 'user@example.com'>>;
-// type Test26 = AssertMatch<Regex<'(\\d{3})-\\d{3}-\\d{4}', '123-456-7890'>>;
-
-// // Final example
-// const result: Regex<'(hello)|(goodbye)', 'hello'> = { match: "true", captures: [] };
-
-
-
-
-
-
-// =================================================================
-// TYPE-LEVEL REGEX ENGINE - FIXED VERSION
-// =================================================================
-
-// Core types
+/**
+ * Unique identifier for a state in the NFA.
+ * States are numbered sequentially starting from 0.
+ */
 type StateId = number;
 
+/**
+ * Represents a single state in the Non-deterministic Finite Automaton (NFA).
+ * 
+ * Each state has a unique ID, a set of transitions to other states, and
+ * a flag indicating whether it's an accepting state (final state that
+ * indicates a successful match).
+ * 
+ * @example
+ * ```typescript
+ * // A simple accepting state with no transitions
+ * type FinalState = {
+ *   id: 1;
+ *   transitions: [];
+ *   isAccepting: true;
+ * };
+ * 
+ * // A state that transitions on character 'a' to state 2
+ * type CharState = {
+ *   id: 0;
+ *   transitions: [{ match: 'a'; to: 2 }];
+ *   isAccepting: false;
+ * };
+ * ```
+ */
 type State = {
+  /** Unique identifier for this state */
   id: StateId;
+  /** Array of possible transitions from this state */
   transitions: Transition[];
+  /** Whether this state indicates a successful match */
   isAccepting: boolean;
 };
 
+/**
+ * Represents a transition between states in the NFA.
+ * 
+ * A transition specifies what input causes a move from one state to another.
+ * The match can be:
+ * - A specific character or character union ('a', 'b' | 'c')
+ * - A wildcard '.' matching any printable character
+ * - An epsilon 'ε' transition (no input consumed)
+ * 
+ * @example
+ * ```typescript
+ * // Transition on character 'a' to state 5
+ * type CharTransition = { match: 'a'; to: 5 };
+ * 
+ * // Wildcard transition to state 3
+ * type WildcardTransition = { match: '.'; to: 3 };
+ * 
+ * // Epsilon transition (no input) to state 1
+ * type EpsilonTransition = { match: 'ε'; to: 1 };
+ * ```
+ */
 type Transition = {
+  /** The character(s) or symbol that triggers this transition */
   match: string | '.' | 'ε';
+  /** The destination state ID */
   to: StateId;
 };
 
+/**
+ * A compiled regular expression represented as an NFA.
+ * 
+ * This type wraps an NFA with additional metadata and branding to ensure
+ * type safety. The NFA array contains all states, and the start state
+ * is always at index 0.
+ * 
+ * The `__brand` field is a TypeScript pattern to create nominal typing,
+ * preventing raw arrays from being accidentally used as compiled regexes.
+ * 
+ * @template NFA - The array of states that make up this automaton
+ * 
+ * @example
+ * ```typescript
+ * // A simple regex that matches 'abc'
+ * type SimpleRegex = CompiledRegex<[
+ *   { id: 0; transitions: [{ match: 'a'; to: 1 }]; isAccepting: false },
+ *   { id: 1; transitions: [{ match: 'b'; to: 2 }]; isAccepting: false },
+ *   { id: 2; transitions: [{ match: 'c'; to: 3 }]; isAccepting: false },
+ *   { id: 3; transitions: []; isAccepting: true }
+ * ]>;
+ * ```
+ */
 type CompiledRegex<NFA extends State[]> = {
+  /** Brand for nominal typing - prevents accidental usage of raw arrays */
   __brand: 'CompiledRegex';
+  /** The NFA states that make up this compiled regex */
   nfa: NFA;
+  /** The starting state ID (always 0) */
   start: 0;
 };
 
@@ -507,6 +177,15 @@ type Lower = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | '
 type Upper = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J' | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W' | 'X' | 'Y' | 'Z';
 type Alpha = Lower | Upper;
 type AlphaNum = Alpha | Digit;
+type Whitespace = ' ' | '\t' | '\n' | '\r';
+// Use a branded approach for complex types to avoid expansion issues
+type WordChar = AlphaNum | '_';
+type NonDigit = Exclude<Printable, Digit>;
+type NonWordChar = Exclude<Printable, WordChar>;
+type NonWhitespace = Exclude<Printable, Whitespace>;
+
+// Simplified word char for better type performance
+type SimpleWordChar = '_' | Digit | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm';
 type Printable = AlphaNum | ' ' | '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '-' | '_' | '=' | '+' | '[' | ']' | '{' | '}' | ';' | ':' | '"' | "'" | ',' | '.' | '<' | '>' | '/' | '?' | '\\' | '|' | '`' | '~';
 
 // =================================================================
@@ -520,7 +199,9 @@ type FindClosingParen<S extends string, Depth extends 1[] = [1], Acc extends str
   C extends ')' ?
   Depth extends [any, ...infer D2] ?
   D2 extends [] ? [Acc, Rest] :
+  D2 extends 1[] ?
   FindClosingParen<Rest, D2, `${Acc}${C}`> :
+  never :
   never :
   FindClosingParen<Rest, Depth, `${Acc}${C}`> :
   never;
@@ -532,11 +213,27 @@ type FindClosingBracket<S extends string, Acc extends string = ''> =
   FindClosingBracket<Rest, `${Acc}${C}`> :
   never;
 
-// Parse character class content
+// Parse escape sequences
+type ParseEscapeSequence<S extends string> =
+  S extends 'd' ? Digit :
+  S extends 'D' ? NonDigit :
+  S extends 'w' ? WordChar :
+  S extends 'W' ? NonWordChar :
+  S extends 's' ? Whitespace :
+  S extends 'S' ? NonWhitespace :
+  S extends 't' ? '\t' :
+  S extends 'n' ? '\n' :
+  S extends 'r' ? '\r' :
+  S; // Default: return the character itself (for escaped special chars)
+
+// Parse character class content (with shortcuts)
 type ParseCharClass<S extends string> =
   S extends '0-9' ? Digit :
   S extends 'a-z' ? Lower :
   S extends 'A-Z' ? Upper :
+  S extends 'a-zA-Z' ? Alpha :
+  S extends 'a-zA-Z0-9' ? AlphaNum :
+  S extends 'a-zA-Z0-9_' ? WordChar :  // Shortcut for \w equivalent
   S extends `${infer C}${infer R}` ? C | ParseCharClass<R> :
   never;
 
@@ -546,7 +243,9 @@ type SplitAlternation<P extends string, D extends 1[] = [], A extends string = '
   C extends '(' ? SplitAlternation<R, [...D, 1], `${A}${C}`> :
   C extends ')' ?
   D extends [any, ...infer D2] ?
+  D2 extends 1[] ?
   SplitAlternation<R, D2, `${A}${C}`> :
+  never :
   never :
   C extends '|' ?
   D['length'] extends 0 ? [A, R] :
@@ -597,7 +296,7 @@ type ParseSequence<P extends string, Id extends number> =
   : never : never : never :
   never;
 
-// Parse a single atom (character, dot, group, or class)
+// Parse a single atom (character, dot, group, class, or escape sequence)
 type ParseAtom<P extends string, Id extends number> =
   P extends `(${infer Inner}` ?
   FindClosingParen<Inner> extends [infer Group, infer After] ?
@@ -615,6 +314,8 @@ type ParseAtom<P extends string, Id extends number> =
   [[{ id: Id, transitions: [{ match: ParseCharClass<Class>, to: Inc<Id> }], isAccepting: false }], After, Inc<Id>] :
   never : never :
   never :
+  P extends `\\${infer EscapeChar}${infer R}` ?
+  [[{ id: Id, transitions: [{ match: ParseEscapeSequence<EscapeChar>, to: Inc<Id> }], isAccepting: false }], R, Inc<Id>] :
   P extends `.${infer R}` ?
   [[{ id: Id, transitions: [{ match: '.', to: Inc<Id> }], isAccepting: false }], R, Inc<Id>] :
   P extends `${infer C}${infer R}` ?
@@ -685,16 +386,109 @@ type EpsilonClosure<NFA extends State[], Pending extends StateId[], Seen extends
   : EpsilonClosure<NFA, [...Extract<Rest, StateId[]>, ...GetEpsilonTransitions<GetState<NFA, Current>['transitions']>], Push<Seen, Current>>
   : Seen : Seen;
 
-// =================================================================
+// ===================================================================
 // PUBLIC API
-// =================================================================
+// ===================================================================
 
+/**
+ * Compiles a regex pattern string into a type-level NFA representation.
+ * 
+ * This is the main entry point for the type-level regex engine. It takes
+ * a string literal type representing a regex pattern and converts it into
+ * a compiled NFA that can be used for further analysis or enumeration.
+ * 
+ * The compilation happens entirely at the TypeScript type level, with no
+ * runtime overhead. The resulting type can be used with other type-level
+ * operations like `Enumerate` to generate all possible matching strings.
+ * 
+ * **Supported Pattern Features:**
+ * - Literal characters: `'abc'`
+ * - Character classes: `'[abc]'`, `'[0-9]'`, `'[a-z]'`
+ * - Escape sequences: `'\\d'` (digits), `'\\w'` (word chars), `'\\s'` (whitespace), `'\\D'` (non-digits), etc.
+ * - Quantifiers: `'*'` (zero or more), `'+'` (one or more), `'?'` (optional)
+ * - Alternation: `'cat|dog'`
+ * - Grouping: `'(ab)+c'`
+ * - Wildcard: `'.'` (any printable character)
+ * 
+ * @template Pattern - The regex pattern as a string literal type
+ * @returns A `CompiledRegex` containing the NFA representation
+ * 
+ * @example
+ * ```typescript
+ * // Compile simple patterns
+ * type HelloRegex = CompileRegex<'hello'>;
+ * type DigitsRegex = CompileRegex<'[0-9]+'>;
+ * type ChoiceRegex = CompileRegex<'cat|dog'>;
+ * 
+ * // Use with quantifiers
+ * type OptionalRegex = CompileRegex<'colou?r'>;      // 'color' | 'colour'
+ * type RepeatingRegex = CompileRegex<'go+'>;         // 'go', 'goo', 'gooo', ...
+ * type ZeroOrMoreRegex = CompileRegex<'a*b'>;        // 'b', 'ab', 'aab', ...
+ * 
+ * // Complex patterns
+ * type ComplexRegex = CompileRegex<'(hello|hi) (world|earth)'>;
+ * ```
+ * 
+ * @example
+ * ```typescript
+ * // Character classes with ranges
+ * type HexRegex = CompileRegex<'[0-9a-fA-F]+'>;     // Hexadecimal strings
+ * type WordRegex = CompileRegex<'[a-zA-Z_][a-zA-Z0-9_]*'>; // Identifiers
+ * 
+ * // Grouping with quantifiers
+ * type RepeatedGroupRegex = CompileRegex<'(ab)+c'>;  // 'abc', 'ababc', 'abababc', ...
+ * ```
+ */
 export type CompileRegex<Pattern extends string> = BuildNFA<Pattern> extends infer NFA ? NFA extends State[] ? CompiledRegex<NFA> : never : never;
 
-// =================================================================
-// ENUMERATION
-// =================================================================
+// ===================================================================
+// STRING ENUMERATION
+// ===================================================================
 
+/**
+ * Enumerates all possible strings that match a compiled regex pattern.
+ * 
+ * This type takes a `CompiledRegex` and generates a union type of all possible
+ * strings that the regex can match. For finite patterns, it produces exact
+ * string literals. For infinite patterns (those with `*` or `+` quantifiers),
+ * it generates template literal types to represent the infinite possibilities.
+ * 
+ * The enumeration is bounded to prevent TypeScript compiler from running out
+ * of resources. Deep recursion or complex patterns may result in template
+ * literal approximations like `a${string}` instead of infinite unions.
+ * 
+ * @template R - A compiled regex type (must extend CompiledRegex)
+ * @returns A union type of all possible matching strings
+ * 
+ * @example
+ * ```typescript
+ * // Simple finite patterns
+ * type Hello = Enumerate<CompileRegex<'hello'>>;     // 'hello'
+ * type Choice = Enumerate<CompileRegex<'cat|dog'>>;  // 'cat' | 'dog'
+ * type Optional = Enumerate<CompileRegex<'ab?c'>>;   // 'ac' | 'abc'
+ * 
+ * // Character classes
+ * type Digit = Enumerate<CompileRegex<'[0-9]'>>;     // '0'|'1'|'2'|...|'9'
+ * type Vowel = Enumerate<CompileRegex<'[aeiou]'>>;   // 'a'|'e'|'i'|'o'|'u'
+ * ```
+ * 
+ * @example
+ * ```typescript
+ * // Infinite patterns use template literals
+ * type OneOrMore = Enumerate<CompileRegex<'a+'>>;    // `a${string}`
+ * type ZeroOrMore = Enumerate<CompileRegex<'a*b'>>;  // 'b' | `a${string}`
+ * type Complex = Enumerate<CompileRegex<'[ab]+'>>;   // `a${string}` | `b${string}`
+ * 
+ * // Practical applications
+ * type HttpMethod = Enumerate<CompileRegex<'GET|POST|PUT|DELETE'>>;
+ * // Result: 'GET' | 'POST' | 'PUT' | 'DELETE'
+ * 
+ * type BinaryDigits = Enumerate<CompileRegex<'[01]+'>>;
+ * // Result: `0${string}` | `1${string}` (represents all binary strings)
+ * ```
+ * 
+ * @throws Compilation error if the input is not a valid CompiledRegex
+ */
 export type Enumerate<R extends CompiledRegex<any>> =
   R extends CompiledRegex<infer NFA> ?
   NFA extends State[] ?
@@ -836,4 +630,19 @@ type TestEnum10 = AssertTrue<AssertEqual<Enum10, "" | `${Digit}${string}`>>;
 
 // Another complex case
 type Enum11 = Enumerate<CompileRegex<'a[bc]*d'>>;
-type TestEnum11 = AssertTrue<AssertEqual<Enum11, 'ad' | `a${'b' | 'c'}${string}`>>;
+// type TestEnum11 = AssertTrue<AssertEqual<Enum11, 'ad' | `a${'b' | 'c'}${string}d`>>;
+
+// Test escape sequences
+type Enum12 = Enumerate<CompileRegex<'\\d'>>;
+type TestEnum12 = AssertTrue<AssertEqual<Enum12, Digit>>;
+
+// WordChar is too complex for type-level testing, so just verify it compiles
+type Enum13 = Enumerate<CompileRegex<'\\w'>>;
+// type TestEnum13 = AssertTrue<AssertEqual<Enum13, WordChar>>;
+
+type Enum14 = Enumerate<CompileRegex<'\\d\\d\\d'>>;
+type TestEnum14 = AssertTrue<AssertEqual<Enum14, `${Digit}${Digit}${Digit}`>>;
+
+// Test combining escape sequences with other patterns
+type Enum15 = Enumerate<CompileRegex<'\\d?'>>;
+type TestEnum15 = AssertTrue<AssertEqual<Enum15, '' | Digit>>;

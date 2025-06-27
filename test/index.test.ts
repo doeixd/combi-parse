@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import add from '../src';
+import { str, number, sequence } from '../src';
 
-describe('blah', () => {
-  it('works', () => {
-    expect(add(1, 1)).toEqual(2);
+describe('Main module exports', () => {
+  it('should export core parser functions', () => {
+    expect(str).toBeDefined();
+    expect(number).toBeDefined();
+    expect(sequence).toBeDefined();
+  });
+
+  it('should parse simple string', () => {
+    const parser = str('hello');
+    expect(parser.parse('hello')).toBe('hello');
   });
 });

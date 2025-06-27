@@ -439,6 +439,48 @@ export class Parser<T> {
       return result;
     })
   };
+
+  /**
+   * Method version of `sepBy` for parsing zero or more occurrences separated by a delimiter.
+   * 
+   * @template S The type of the separator
+   * @template U The desired output type, defaults to `T[]`
+   * @param separator The parser for the separator
+   * @param into An optional function to transform the final array of results
+   * @returns A `Parser<U>` for the separated list
+   * 
+   * @example
+   * const numbers = regex(/\d+/).sepBy(str(','));
+   * numbers.parse('1,2,3'); // -> ['1', '2', '3']
+   * numbers.parse('');      // -> []
+   */
+  sepBy<S, U = T[]>(
+    separator: Parser<S>,
+    into?: (results: T[]) => U
+  ): Parser<U> {
+    return sepBy(this, separator, into);
+  }
+
+  /**
+   * Method version of `sepBy1` for parsing one or more occurrences separated by a delimiter.
+   * 
+   * @template S The type of the separator
+   * @template U The desired output type, defaults to `T[]`
+   * @param separator The parser for the separator
+   * @param into An optional function to transform the final array of results
+   * @returns A `Parser<U>` for the separated list
+   * 
+   * @example
+   * const numbers = regex(/\d+/).sepBy1(str(','));
+   * numbers.parse('1,2,3'); // -> ['1', '2', '3']
+   * // numbers.parse('');   // Throws ParserError
+   */
+  sepBy1<S, U = T[]>(
+    separator: Parser<S>,
+    into?: (results: T[]) => U
+  ): Parser<U> {
+    return sepBy1(this, separator, into);
+  }
   
 }
 
@@ -639,7 +681,7 @@ export const eof: Parser<null> = new Parser(state =>
 export const lazy = <T>(fn: () => Parser<T>): Parser<T> => new Parser(state => fn().run(state));
 
 /** A parser for zero or more whitespace characters. Used by `lexeme`. Defined once for performance. */
-const optionalWhitespace = regex(/\s*/);
+export const optionalWhitespace = regex(/\s*/);
 
 /**
  * A "lexing" combinator that transforms a parser into one that consumes
@@ -846,6 +888,62 @@ export const between = <L, C, R>(left: Parser<L>, content: Parser<C>, right: Par
  */
 export const optional = <T>(parser: Parser<T>): Parser<T | null> => parser.optional();
 
+/**
+ * Standalone version of the `many` method for applying a parser zero or more times.
+ * 
+ * This function applies the given parser zero or more times, collecting all successful 
+ * results into an array. This parser cannot fail; if it can't match even once, it
+ * succeeds with an empty array.
+ *
+ * **Note:** The parser provided to `many` *must* consume input on success
+ * to prevent infinite loops.
+ *
+ * @template T The type of value the parser produces
+ * @template U The desired output type. Defaults to an array of the parser's results (`T[]`).
+ * @param parser The parser to apply multiple times
+ * @param into An optional function to transform the final array of results.
+ * @returns A `Parser<U>` that collects multiple results.
+ *
+ * @example
+ * const digits = many(regex(/[0-9]/));
+ * digits.parse("123abc"); // -> ["1", "2", "3"]
+ * digits.parse("abc");    // -> []
+ * 
+ * // With transformation function
+ * const digitCount = many(regex(/[0-9]/), arr => arr.length);
+ * digitCount.parse("123"); // -> 3
+ */
+export const many = <T, U = T[]>(
+  parser: Parser<T>,
+  into?: (results: T[]) => U
+): Parser<U> => parser.many(into);
+
+/**
+ * Standalone version of the `many1` method for applying a parser one or more times.
+ * 
+ * This function applies the given parser **one** or more times, collecting all 
+ * successful results into an array. This parser will fail if it cannot match at least once.
+ *
+ * @template T The type of value the parser produces
+ * @template U The desired output type. Defaults to an array of the parser's results (`T[]`).
+ * @param parser The parser to apply multiple times
+ * @param into An optional function to transform the final array of results.
+ * @returns A `Parser<U>` that collects one or more results.
+ *
+ * @example
+ * const digits = many1(regex(/[0-9]/));
+ * digits.parse("123abc"); // -> ["1", "2", "3"]
+ * // digits.parse("abc"); // Throws ParserError
+ * 
+ * // With transformation function
+ * const numberString = many1(regex(/[0-9]/), arr => arr.join(''));
+ * numberString.parse("123"); // -> "123"
+ */
+export const many1 = <T, U = T[]>(
+  parser: Parser<T>,
+  into?: (results: T[]) => U
+): Parser<U> => parser.many1(into);
+
 
 // =================================================================
 // Section 6: Advanced & Utility Combinators
@@ -1024,13 +1122,15 @@ export const memo = <T>(parser: Parser<T>): Parser<T> => {
 };
 
 /**
- * A helper for defining left-recursive grammars, which are grammars that
- * would otherwise cause infinite loops. A common example is arithmetic
- * expressions: `expr = expr '+' term | term`.
+ * A helper for defining left-recursive grammars using a seed-growing algorithm.
+ * This handles grammars that would otherwise cause infinite loops, such as
+ * arithmetic expressions: `expr = expr '+' term | term`.
  *
- * This combinator wraps a parser-producing function in both `memo` and `lazy`
- * to safely handle the self-reference. It should be used for any parser
- * that directly or indirectly refers to itself on the left-hand side of a rule.
+ * The algorithm works by:
+ * 1. Starting with a failure "seed" at each input position
+ * 2. Repeatedly applying the parser rule with memoized results
+ * 3. Growing the seed until no further progress is made
+ * 4. Returning the largest successful parse
  *
  * @template T The recursive parser's result type.
  * @param fn A function that returns the recursive parser definition.
@@ -1048,7 +1148,55 @@ export const memo = <T>(parser: Parser<T>): Parser<T> => {
  * expr.parse("1+2+3"); // -> 6
  */
 export function leftRecursive<T>(fn: () => Parser<T>): Parser<T> {
-  return memo(lazy(fn));
+  // Create a fresh memo table for each parser instance
+  const memo = new Map<number, ParseResult<T>>();
+  
+  return new Parser((state: ParserState) => {
+    const pos = state.index;
+    
+    // Check if we already have a memoized result for this position
+    if (memo.has(pos)) {
+      return memo.get(pos)!;
+    }
+    
+    // Start with a failure seed to prevent infinite recursion
+    let seed: ParseResult<T> = failure('Left recursion base', state);
+    memo.set(pos, seed);
+    
+    // Get the parser definition
+    const parser = fn();
+    
+    // Keep trying to grow the seed until we reach a fixed point
+    while (true) {
+      const result = parser.run(state);
+      
+      // If parsing failed, we can't grow further
+      if (result.type === 'failure') {
+        break;
+      }
+      
+      // If we succeeded but didn't make progress, we've reached a fixed point
+      if (result.type === 'success') {
+        if (seed.type === 'success' && result.state.index <= seed.state.index) {
+          break;
+        }
+        
+        // We made progress! Update the seed and continue growing
+        seed = result;
+        memo.set(pos, seed);
+      }
+    }
+    
+    // If we never succeeded, try the base case without left recursion
+    if (seed.type === 'failure') {
+      memo.delete(pos);
+      const baseResult = parser.run(state);
+      memo.set(pos, baseResult);
+      return baseResult;
+    }
+    
+    return seed;
+  });
 }
 
 /**
@@ -1107,7 +1255,7 @@ export function genParser<T>(gen: () => Generator<Parser<any>, T, any>): Parser<
  *
  * @throws {ParserError} always.
  */
-export function fromGrammar(grammar: string): never {
+export function fromGrammar(_grammar: string): never {
   throw new ParserError("fromGrammar is a placeholder and not implemented. Please use the provided combinators.");
 }
 

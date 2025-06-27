@@ -131,6 +131,54 @@ const MASTER_DEFINITIONS = [
 
 
 // =================================================================
+// SECTION C: UTILITY FUNCTIONS
+// =================================================================
+
+/**
+ * Convert a string of characters into a TypeScript union type.
+ * @param {string} chars - The string of characters.
+ * @returns {string} A TypeScript union type.
+ */
+function toUnionType(chars) {
+  if (!chars) return 'never';
+  return [...new Set(chars)].map(c => {
+    if (c === "'") return `'\\''`;
+    if (c === "\\") return `'\\\\'`;
+    if (c === "\n") return `'\\n'`;
+    if (c === "\r") return `'\\r'`;
+    if (c === "\t") return `'\\t'`;
+    if (c === "\f") return `'\\f'`;
+    if (c === "\v") return `'\\v'`;
+    if (c.charCodeAt(0) < 32) return `'\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}'`;
+    return `'${c}'`;
+  }).join(' | ');
+}
+
+/**
+ * Count the total number of characters in the given Unicode ranges.
+ * @param {Array<Array<number>>} ranges - Array of [start, end] ranges.
+ * @returns {number} Total character count.
+ */
+function countCharsInRanges(ranges) {
+  return ranges.reduce((total, [start, end]) => total + (end - start + 1), 0);
+}
+
+/**
+ * Generate a string of characters from Unicode ranges.
+ * @param {Array<Array<number>>} ranges - Array of [start, end] ranges.
+ * @returns {string} A string containing all characters in the ranges.
+ */
+function generateCharsFromRanges(ranges) {
+  let result = '';
+  for (const [start, end] of ranges) {
+    for (let i = start; i <= end; i++) {
+      result += String.fromCharCode(i);
+    }
+  }
+  return result;
+}
+
+// =================================================================
 // SECTION D: NEW - PRE-CALCULATE DATA FOR GENERATION
 // =================================================================
 
@@ -219,14 +267,22 @@ function main() {
   fileContent += `\n/** A runtime map from the name of a class to its string of characters. */\n`;
   fileContent += `export const CHAR_CLASS_STRINGS: { [K in CharClassName]: string } = {\n`;
   for (const def of concreteClasses) {
-    // Escape backslashes and single quotes in the JS string
-    const safeString = def.charString.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    // Escape special characters in the JS string
+    const safeString = def.charString
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t')
+      .replace(/\f/g, '\\f')
+      .replace(/\v/g, '\\v')
+      .replace(/[\x00-\x1F]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
     fileContent += `  ${def.name}: '${safeString}',\n`;
   }
   fileContent += `};\n`;
 
 
-  const outputPath = path.join(process.cwd(), 'master-char-classes.ts');
+  const outputPath = path.join(process.cwd(), 'src', 'master-char-classes.ts');
   fs.writeFileSync(outputPath, fileContent.trim());
 
   console.log(`✅ Successfully generated the master types module with factory mappings: ${outputPath}`);

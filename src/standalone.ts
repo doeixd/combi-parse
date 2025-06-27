@@ -1,31 +1,77 @@
-// =================================================================
-//
-//      Functional Composition & Piping Utilities for Parsers
-//
-//      This module provides a comprehensive set of standalone, "data-last"
-//      functions that mirror the methods and combinators from the
-//      core parser library. It enables a functional composition
-//      style using the `pipe` utility, which can be more readable
-//      and flexible for complex parser definitions.
-//
-//      This file is designed to be a companion to the main parser file.
-//      It imports the core library using a namespace (`P`) to prevent
-//      naming conflicts, which is a recommended pattern.
-//
-//      STYLE COMPARISON:
-//
-//      // Method Chaining Style
-//      const parser = str("(")
-//        .keepRight(number)
-//        .keepLeft(str(")"))
-//
-//      // Functional Piping Style
-//      const parser = pipe(
-//        number,
-//        surroundedBy(str("("), str(")"))
-//      );
-//
-// =================================================================
+/**
+ * @fileoverview Functional Composition & Piping Utilities for Parsers
+ * 
+ * This module provides a comprehensive set of standalone, "data-last" functions
+ * that mirror the methods and combinators from the core parser library. It enables
+ * a functional composition style using the `pipe` utility, which can be more
+ * readable and flexible for complex parser definitions.
+ * 
+ * The functional style is an alternative to method chaining that offers several benefits:
+ * - **Composability**: Functions can be easily combined and reused
+ * - **Readability**: Complex transformations read left-to-right like a pipeline
+ * - **Testability**: Individual transformation functions can be tested in isolation
+ * - **Flexibility**: Partial application and currying work naturally
+ * 
+ * This module imports the core library using a namespace (`P`) to prevent naming
+ * conflicts, which is a recommended pattern for creating parallel APIs.
+ * 
+ * ## Style Comparison
+ * 
+ * **Method Chaining Style:**
+ * ```typescript
+ * const parser = str("(")
+ *   .keepRight(number)
+ *   .keepLeft(str(")"))
+ *   .map(n => ({ value: n }));
+ * ```
+ * 
+ * **Functional Piping Style:**
+ * ```typescript
+ * const parser = pipe(
+ *   number,
+ *   surroundedBy(str("("), str(")")),
+ *   map(n => ({ value: n }))
+ * );
+ * ```
+ * 
+ * ## Key Concepts
+ * 
+ * - **Data-Last**: All functions take the parser as the last argument for better composition
+ * - **Currying**: Functions return partially applied functions when given incomplete arguments
+ * - **Pipe-First**: The `pipe` function takes data first, then transformation functions
+ * - **Type Safety**: Full TypeScript type inference through the entire pipeline
+ * 
+ * @example
+ * ```typescript
+ * import { pipe, map, keepRight, keepLeft, optional } from './standalone';
+ * import { str, number } from './parser';
+ * 
+ * // Parse a parenthesized number like "(42)"
+ * const parenthesizedNumber = pipe(
+ *   number,
+ *   surroundedBy(str("("), str(")")),
+ *   map(n => ({ value: n }))
+ * );
+ * ```
+ * 
+ * @example
+ * ```typescript
+ * // Create reusable parser transformations
+ * const inParens = <T>(contentParser: Parser<T>) => 
+ *   surroundedBy(str("("), str(")"))(contentParser);
+ * 
+ * const asOptional = <T>() => optional<T>();
+ * 
+ * const parseOptionalNumber = pipe(
+ *   number,
+ *   inParens,
+ *   asOptional
+ * );
+ * ```
+ * 
+ * @see {@link ./parser.ts} for the core parser library
+ * @see {@link https://ramdajs.com/} for inspiration on functional programming patterns
+ */
 
 // We import the entire core module as `P` to prevent name collisions.
 // This is a robust pattern for creating a parallel functional API.
