@@ -34,17 +34,17 @@ import { Parser, success, failure } from "../parser";
  * Configuration for error recovery behavior
  */
 export interface RecoveryConfig<T> {
-  /** What pattern(s) to look for when recovering */
-  patterns: Parser<any> | Parser<any>[];
-  
-  /** What to return on recovery */
-  fallback: T;
-  
-  /** How to handle the recovery pattern when found */
-  strategy: 'consume' | 'position' | 'optional';
-  
-  /** What to do when primary parser succeeds */
-  onSuccess?: 'ignore' | 'requirePattern' | 'optionalPattern';
+    /** What pattern(s) to look for when recovering */
+    patterns: Parser<any> | Parser<any>[];
+
+    /** What to return on recovery */
+    fallback: T;
+
+    /** How to handle the recovery pattern when found */
+    strategy: 'consume' | 'position' | 'optional';
+
+    /** What to do when primary parser succeeds */
+    onSuccess?: 'ignore' | 'requirePattern' | 'optionalPattern';
 }
 
 /**
@@ -75,23 +75,23 @@ export interface RecoveryConfig<T> {
  * ```
  */
 export function terminated<T>(
-  parser: Parser<T>, 
-  terminator: Parser<any>
+    parser: Parser<T>,
+    terminator: Parser<any>
 ): Parser<T> {
-  return new Parser(state => {
-    const result = parser.run(state);
-    
-    if (result.type === 'success') {
-      const terminatorResult = terminator.run(result.state);
-      if (terminatorResult.type === 'success') {
-        return success(result.value, terminatorResult.state);
-      } else {
-        return failure(`Expected terminator after successful parse at position ${result.state.index}`, result.state);
-      }
-    }
-    
-    return result;
-  });
+    return new Parser(state => {
+        const result = parser.run(state);
+
+        if (result.type === 'success') {
+            const terminatorResult = terminator.run(result.state);
+            if (terminatorResult.type === 'success') {
+                return success(result.value, terminatorResult.state);
+            } else {
+                return failure(`Expected terminator after successful parse at position ${result.state.index}`, result.state);
+            }
+        }
+
+        return result;
+    });
 }
 
 /**
@@ -133,85 +133,85 @@ export function terminated<T>(
  * ```
  */
 export function recover<T>(
-  parser: Parser<T>,
-  config: RecoveryConfig<T>
+    parser: Parser<T>,
+    config: RecoveryConfig<T>
 ): Parser<T> {
-  const patterns = Array.isArray(config.patterns) ? config.patterns : [config.patterns];
-  
-  return new Parser(state => {
-    const result = parser.run(state);
+    const patterns = Array.isArray(config.patterns) ? config.patterns : [config.patterns];
 
-    if (result.type === 'success') {
-      // Handle success case based on onSuccess configuration
-      if (config.onSuccess === 'ignore') {
-        return result;
-      }
-      
-      if (config.onSuccess === 'requirePattern') {
-        // Must find and consume pattern
-        for (const pattern of patterns) {
-          const patternResult = pattern.run(result.state);
-          if (patternResult.type === 'success') {
-            return success(result.value, patternResult.state);
-          }
-        }
-        return failure(`Expected recovery pattern after successful parse at position ${result.state.index}`, result.state);
-      }
-      
-      if (config.onSuccess === 'optionalPattern') {
-        // Try to find and consume pattern, but don't require it
-        for (const pattern of patterns) {
-          const patternResult = pattern.run(result.state);
-          if (patternResult.type === 'success') {
-            switch (config.strategy) {
-              case 'consume':
-                return success(result.value, patternResult.state);
-              case 'position':
-                return success(result.value, result.state);
-              case 'optional':
-                return success(result.value, patternResult.state);
+    return new Parser(state => {
+        const result = parser.run(state);
+
+        if (result.type === 'success') {
+            // Handle success case based on onSuccess configuration
+            if (config.onSuccess === 'ignore') {
+                return result;
             }
-          }
+
+            if (config.onSuccess === 'requirePattern') {
+                // Must find and consume pattern
+                for (const pattern of patterns) {
+                    const patternResult = pattern.run(result.state);
+                    if (patternResult.type === 'success') {
+                        return success(result.value, patternResult.state);
+                    }
+                }
+                return failure(`Expected recovery pattern after successful parse at position ${result.state.index}`, result.state);
+            }
+
+            if (config.onSuccess === 'optionalPattern') {
+                // Try to find and consume pattern, but don't require it
+                for (const pattern of patterns) {
+                    const patternResult = pattern.run(result.state);
+                    if (patternResult.type === 'success') {
+                        switch (config.strategy) {
+                            case 'consume':
+                                return success(result.value, patternResult.state);
+                            case 'position':
+                                return success(result.value, result.state);
+                            case 'optional':
+                                return success(result.value, patternResult.state);
+                        }
+                    }
+                }
+                return result; // No pattern found, return original success
+            }
+
+            // Default behavior (onSuccess not specified) - return original success
+            return result;
         }
-        return result; // No pattern found, return original success
-      }
-      
-      // Default behavior (onSuccess not specified) - return original success
-      return result;
-    }
 
-    // Primary parser failed - try to recover by finding synchronization point
-    let currentState = state;
-    while (currentState.index < currentState.input.length) {
-      for (const pattern of patterns) {
-        const recoveryResult = pattern.run(currentState);
+        // Primary parser failed - try to recover by finding synchronization point
+        let currentState = state;
+        while (currentState.index < currentState.input.length) {
+            for (const pattern of patterns) {
+                const recoveryResult = pattern.run(currentState);
 
-        if (recoveryResult.type === 'success') {
-          switch (config.strategy) {
-            case 'consume':
-              return success(config.fallback, recoveryResult.state);
-            case 'position':
-              return success(config.fallback, currentState);
-            case 'optional':
-              return success(config.fallback, recoveryResult.state);
-          }
+                if (recoveryResult.type === 'success') {
+                    switch (config.strategy) {
+                        case 'consume':
+                            return success(config.fallback, recoveryResult.state);
+                        case 'position':
+                            return success(config.fallback, currentState);
+                        case 'optional':
+                            return success(config.fallback, recoveryResult.state);
+                    }
+                }
+            }
+
+            currentState = { ...currentState, index: currentState.index + 1 };
         }
-      }
 
-      currentState = { ...currentState, index: currentState.index + 1 };
-    }
-
-    return result; // Return original failure if no recovery point found
-  });
+        return result; // Return original failure if no recovery point found
+    });
 }
 
 /**
  * Context for local and global recovery patterns
  */
 export interface RecoveryContext<T> {
-  pattern: Parser<any>;
-  fallback: T;
-  consume?: boolean;
+    pattern: Parser<any>;
+    fallback: T;
+    consume?: boolean;
 }
 
 /**
@@ -245,53 +245,53 @@ export interface RecoveryContext<T> {
  * ```
  */
 export function recoverWithContext<T>(
-  parser: Parser<T>,
-  local: RecoveryContext<T>,
-  global?: RecoveryContext<T>
+    parser: Parser<T>,
+    local: RecoveryContext<T>,
+    global?: RecoveryContext<T>
 ): Parser<T> {
-  return new Parser(state => {
-    const result = parser.run(state);
+    return new Parser(state => {
+        const result = parser.run(state);
 
-    if (result.type === 'success') {
-      return result;
-    }
-
-    // Try local recovery first
-    let currentState = state;
-    while (currentState.index < currentState.input.length) {
-      const localResult = local.pattern.run(currentState);
-      
-      if (localResult.type === 'success') {
-        const nextState = (local.consume !== false) ? localResult.state : currentState;
-        return success(local.fallback, nextState);
-      }
-      
-      // If global recovery is configured, try it too
-      if (global) {
-        const globalResult = global.pattern.run(currentState);
-        if (globalResult.type === 'success') {
-          const nextState = (global.consume !== false) ? globalResult.state : currentState;
-          return success(global.fallback, nextState);
+        if (result.type === 'success') {
+            return result;
         }
-      }
 
-      currentState = { ...currentState, index: currentState.index + 1 };
-    }
+        // Try local recovery first
+        let currentState = state;
+        while (currentState.index < currentState.input.length) {
+            const localResult = local.pattern.run(currentState);
 
-    return result; // Return original failure if no recovery point found
-  });
+            if (localResult.type === 'success') {
+                const nextState = (local.consume !== false) ? localResult.state : currentState;
+                return success(local.fallback, nextState);
+            }
+
+            // If global recovery is configured, try it too
+            if (global) {
+                const globalResult = global.pattern.run(currentState);
+                if (globalResult.type === 'success') {
+                    const nextState = (global.consume !== false) ? globalResult.state : currentState;
+                    return success(global.fallback, nextState);
+                }
+            }
+
+            currentState = { ...currentState, index: currentState.index + 1 };
+        }
+
+        return result; // Return original failure if no recovery point found
+    });
 }
 
 // Legacy recover function for backward compatibility
 export function legacyRecover<T>(
-  parser: Parser<T>,
-  recovery: Parser<any>,
-  fallback: T
+    parser: Parser<T>,
+    recovery: Parser<any>,
+    fallback: T
 ): Parser<T> {
-  return recover(parser, {
-    patterns: recovery,
-    fallback,
-    strategy: 'consume',
-    onSuccess: 'optionalPattern'
-  });
+    return recover(parser, {
+        patterns: recovery,
+        fallback,
+        strategy: 'consume',
+        onSuccess: 'optionalPattern'
+    });
 }
