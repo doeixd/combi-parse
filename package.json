@@ -1,14 +1,18 @@
 {
   "name": "@doeixd/combi-parse",
   "version": "0.0.3",
-  "files": [
-    "dist",
-    "src"
-  ],
-  "engines": {
-    "node": ">=16"
-  },
+  "description": "A parser combinator library designed for TypeScript, offering type inference and compile-time safety for building modular and maintainable parsers.",
+  "author": "Patrick Glenn",
   "license": "MIT",
+  "private": false,
+  "homepage": "https://github.com/doeixd/combi-parse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/doeixd/combi-parse"
+  },
+  "bugs": {
+    "url": "https://github.com/doeixd/combi-parse/issues"
+  },
   "keywords": [
     "parser",
     "parsing",
@@ -45,6 +49,27 @@
     "pridepack",
     "combi-parse"
   ],
+  "files": [
+    "dist",
+    "src"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "pridepack build",
+    "type-check": "pridepack check",
+    "clean": "pridepack clean",
+    "watch": "pridepack watch",
+    "start": "pridepack start",
+    "dev": "pridepack dev",
+    "test": "vitest",
+    "release": "standard-version && git push --follow-tags origin main",
+    "prepublishOnly": "pridepack clean && pridepack build"
+  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "pridepack": "2.6.4",
@@ -53,34 +78,9 @@
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },
-  "scripts": {
-    "release": "standard-version && git push --follow-tags origin main",
-    "prepublishOnly": "pridepack clean && pridepack build",
-    "build": "pridepack build",
-    "type-check": "pridepack check",
-    "clean": "pridepack clean",
-    "watch": "pridepack watch",
-    "start": "pridepack start",
-    "dev": "pridepack dev",
-    "test": "vitest"
-  },
-  "private": false,
-  "description": "A parser combinator library designed for TypeScript, offering type inference and compile-time safety for building modular and maintainable parsers.",
-  "repository": {
-    "url": "https://github.com/doeixd/combi-parse",
-    "type": "git"
-  },
-  "homepage": "https://github.com/doeixd/combi-parse",
-  "bugs": {
-    "url": "https://github.com/doeixd/combi-parse/issues"
-  },
-  "author": "Patrick Glenn",
-  "publishConfig": {
-    "access": "public"
-  },
-  "types": "./dist/types/index.d.ts",
   "main": "./dist/cjs/production/index.js",
   "module": "./dist/esm/production/index.js",
+  "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
@@ -90,9 +90,110 @@
       },
       "require": "./dist/cjs/production/index.js",
       "import": "./dist/esm/production/index.js"
-    }
+    },
+    "./binary": {
+      "types": "./dist/types/parsers/binary.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/parsers/binary.js",
+        "import": "./dist/esm/development/parsers/binary.js"
+      },
+      "require": "./dist/cjs/production/parsers/binary.js",
+      "import": "./dist/esm/production/parsers/binary.js"
+    },
+    "./stream": {
+      "types": "./dist/types/parsers/stream.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/parsers/stream.js",
+        "import": "./dist/esm/development/parsers/stream.js"
+      },
+      "require": "./dist/cjs/production/parsers/stream.js",
+      "import": "./dist/esm/production/parsers/stream.js"
+    },
+    "./secure": {
+      "types": "./dist/types/parsers/secure.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/parsers/secure.js",
+        "import": "./dist/esm/development/parsers/secure.js"
+      },
+      "require": "./dist/cjs/production/parsers/secure.js",
+      "import": "./dist/esm/production/parsers/secure.js"
+    },
+    "./incremental": {
+      "types": "./dist/types/parsers/incremental.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/parsers/incremental.js",
+        "import": "./dist/esm/development/parsers/incremental.js"
+      },
+      "require": "./dist/cjs/production/parsers/incremental.js",
+      "import": "./dist/esm/production/parsers/incremental.js"
+    },
+    "./regex": {
+      "types": "./dist/types/regex.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/regex.js",
+        "import": "./dist/esm/development/regex.js"
+      },
+      "require": "./dist/cjs/production/regex.js",
+      "import": "./dist/esm/production/regex.js"
+    },
+    "./generator": {
+      "types": "./dist/types/parsers/generator/index.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/parsers/generator/index.js",
+        "import": "./dist/esm/development/parsers/generator/index.js"
+      },
+      "require": "./dist/cjs/production/parsers/generator/index.js",
+      "import": "./dist/esm/production/parsers/generator/index.js"
+    },
+    "./async": {
+      "types": "./dist/types/parsers/async.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/parsers/async.js",
+        "import": "./dist/esm/development/parsers/async.js"
+      },
+      "require": "./dist/cjs/production/parsers/async.js",
+      "import": "./dist/esm/production/parsers/async.js"
+    },
+    "./primitives": {
+      "types": "./dist/types/primitives/index.d.ts",
+      "development": {
+        "require": "./dist/cjs/development/primitives/index.js",
+        "import": "./dist/esm/development/primitives/index.js"
+      },
+      "require": "./dist/cjs/production/primitives/index.js",
+      "import": "./dist/esm/production/primitives/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "typesVersions": {
-    "*": {}
+    "*": {
+      ".": [
+        "./dist/types/index.d.ts"
+      ],
+      "binary": [
+        "./dist/types/parsers/binary.d.ts"
+      ],
+      "stream": [
+        "./dist/types/parsers/stream.d.ts"
+      ],
+      "secure": [
+        "./dist/types/parsers/secure.d.ts"
+      ],
+      "incremental": [
+        "./dist/types/parsers/incremental.d.ts"
+      ],
+      "regex": [
+        "./dist/types/regex.d.ts"
+      ],
+      "generator": [
+        "./dist/types/parsers/generator/index.d.ts"
+      ],
+      "async": [
+        "./dist/types/parsers/async.d.ts"
+      ],
+      "primitives": [
+        "./dist/types/primitives/index.d.ts"
+      ]
+    }
   }
 }
