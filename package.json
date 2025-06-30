@@ -1,5 +1,5 @@
 {
-  "name": "combi-parse",
+  "name": "@doeixd/combi-parse",
   "version": "0.0.1",
   "files": [
     "dist",
