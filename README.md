@@ -1,9 +1,3 @@
-Of course. Here is the revised `README.md` with a `<br />` tag and an extra newline before each `<h2>` header for better visual separation.
-
----
-
-### Improved `README.md` (with spacing)
-
 [![NPM Version](https://img.shields.io/npm/v/@doeixd/combi-parse.svg)](https://www.npmjs.com/package/@doeixd/combi-parse)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
@@ -138,15 +132,15 @@ We designed Combi-Parse around a few key principles to make parsing a better exp
 
 Combi-Parse gives you a toolkit of specialized approaches so you can choose the right one for your project.
 
-| Paradigm | Best For... | Example |
+| Paradigm | Best For... | Example Import |
 | :--- | :--- | :--- |
-| **Traditional Combinators** | General parsing, functional style | `sequence([a, b, c])` |
-| **Generator-Based Parsing** | Complex, multi-step, or stateful logic | `genParser(function*() { ... })` |
-| **Binary Data Parsing** | File formats, network protocols | `Binary.u32LE` |
-| **Stream Processing** | Large files, real-time data feeds | `createStreamParser(...)` |
-| **Incremental Parsing** | Code editors, IDEs, live previews | `IncrementalParser.create(...)` |
-| **Secure Parsing** | Untrusted user input, API endpoints | `SecureParser.create(...)` |
-| **Type-Level Regex** | Compile-time validation, type-safe patterns | `type Email = CompileRegex<'...'>` |
+| **Traditional Combinators** | General parsing, functional style | `import { sequence } from '@doeixd/combi-parse';` |
+| **Generator-Based Parsing** | Complex, multi-step, or stateful logic | `import { genParser } from '@doeixd/combi-parse';` |
+| **Binary Data Parsing** | File formats, network protocols | `import { Binary } from '@doeixd/combi-parse/binary';` |
+| **Stream Processing** | Large files, real-time data feeds | `import { createStreamParser } from '@doeixd/combi-parse/stream';` |
+| **Incremental Parsing** | Code editors, IDEs, live previews | `import { IncrementalParser } from '@doeixd/combi-parse/incremental';` |
+| **Secure Parsing** | Untrusted user input, API endpoints | `import { SecureParser } from '@doeixd/combi-parse/secure';` |
+| **Type-Level Regex** | Compile-time validation, type-safe patterns | `import type { CompileRegex } from '@doeixd/combi-parse/regex';` |
 
 <br />
 
@@ -157,11 +151,15 @@ Ready to build your own parser? We have comprehensive documentation to guide you
 | To... | See... |
 | :--- | :--- |
 | **Understand the fundamentals** | **[Core Concepts](docs/core-concepts.md)** |
-| **See all available functions** | **[API Overview](docs/api/overview.md)** |
-| **Fix a common problem** | **[Troubleshooting Guide](docs/troubleshooting.md)** |
+| **Follow a guided example** | **[Tutorial: Your First Parser](docs/tutorial.md)** |
+| **See a real-world example** | **[Complete JSON Parser Example](docs/examples/json.md)** |
+| **Choose the right tools** | **[API Overview](docs/api/overview.md)** |
+| **Handle tricky situations** | **[Advanced Techniques](docs/advanced-techniques.md)** |
 | **Parse a binary file format** | **[Binary Parsing Guide](docs/binary.md)** |
 | **Handle a real-time data feed**| **[Async & Streaming Guide](docs/async-streaming.md)** |
 | **Write a type-safe regex** | **[Type-Level Regex Guide](docs/regex-and-type-safety.md)** |
+| **Tune for speed** | **[Performance Guide](docs/performance.md)** |
+| **Fix a common problem** | **[Troubleshooting Guide](docs/troubleshooting.md)** |
 
 <br />
 
