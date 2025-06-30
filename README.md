@@ -5,9 +5,11 @@
 
 # Combi-Parse
 
-A friendly, powerful, and type-safe parser combinator library for TypeScript. It helps you transform structured text into meaningful data with confidence and clarity.
+A friendly, powerful, and type-safe parser combinator library for TypeScript. It helps you transform raw, structured text into meaningful data with confidence and clarity.
 
-Combi-Parse is built on the idea that parsing shouldn't be a tedious and error-prone task. By providing a set of simple, composable building blocks, it allows you to describe the structure of your data declaratively. The library handles the complex details—like tracking position, managing state, and reporting errors—so you can focus on your grammar.
+Combi-Parse is built on a simple but powerful idea: **parser combinators**. Think of them like Lego blocks. You start with tiny, simple parsers that do one thing well (like matching the word "let" or a number). You then "combine" these blocks to build bigger, more sophisticated parsers that can understand complex structures, like a programming language or a JSON file.
+
+The library handles the complex details—like tracking the current position in the text, managing state, and reporting helpful errors—so you can focus on describing the *what* of your data's grammar, not the *how*.
 
 <br />
 
@@ -19,15 +21,113 @@ npm install @doeixd/combi-parse
 
 <br />
 
-## 🚀 Quick Start: Your First Parser
+## 🚀 Quick Start: A Guided Tour
 
-Let's build a simple parser for a variable declaration, like `let user = "jane";`.
+Let's build our first parser. Our goal is to parse a simple variable declaration string like `let user = "jane";` and turn it into a structured JavaScript object.
+
+We'll build this up step-by-step to understand what’s happening.
+
+### Step 1: Understanding the "Parser"
+
+First, what *is* a parser in this library?
+
+A parser is an object that "knows" how to recognize a specific piece of text. It's not the *result* itself; it's the *machine* that produces the result. Every parser has a `.parse()` method that you run on an input string.
+
+Let's make the simplest possible parser: one that recognizes the exact word `let`.
+
+```typescript
+import { str } from '@doeixd/combi-parse';
+
+// Create a parser that looks for the literal string 'let'.
+const letParser = str('let');
+
+// Let's run it!
+const result = letParser.parse('let there be light');
+
+console.log(result); // Output: 'let'
+
+// What happens if it fails?
+try {
+  letParser.parse('const there be light');
+} catch (error) {
+  console.error(error.message); // Output: "ParseError at 1:1, expected 'let' but got 'const...'"
+}
+```
+As you can see, a parser either successfully returns the value it parsed or throws a descriptive error.
+
+### Step 2: Handling Patterns and Whitespace
+
+Hardcoding every string isn't enough. We need to parse things like variable names, which follow a pattern. For that, we use the `regex` parser.
+
+We also need to handle whitespace. It would be annoying to manually parse spaces after every token. This is where `lexeme` comes in. A **lexeme** is a token followed by any insignificant trailing whitespace.
+
+`lexeme()` is a **higher-order parser**: it takes a parser as input and returns a *new* parser that does the original job and *also* consumes any whitespace that follows.
+
+```typescript
+import { str, regex, lexeme } from '@doeixd/combi-parse';
+
+// `lexeme` wraps our basic parsers to also handle trailing whitespace.
+// This makes composing them much cleaner.
+
+// A parser for the 'let' keyword, ignoring any space after it.
+const letKeyword = lexeme(str('let'));
+
+// A parser for a variable name using a regular expression.
+const identifier = lexeme(regex(/[a-zA-Z_][a-zA-Z0-9_]*/));
+
+// A parser for the equals sign.
+const equals = lexeme(str('='));
+
+// We don't need lexeme for the final semicolon, as there's no trailing space to consume.
+const semicolon = str(';');
+```
+
+### Step 3: Parsing a Sequence of Things
+
+Now we have parsers for the individual pieces: `let`, `user`, `=`, and `;`. We need to tell Combi-Parse to run them in a specific order. For that, we use the `sequence` combinator.
+
+`sequence` takes an array of parsers and runs them one after another. If they all succeed, it returns an array of their results.
+
+```typescript
+// ... imports and parsers from above
+
+// Let's define a parser for a string literal like "jane".
+// The `between` parser is perfect for this. It parses whatever is
+// between a start and end token.
+const stringLiteral = between(str('"'), regex(/[^"]*/), str('"'));
+
+// Now, let's combine everything into a sequence.
+const declarationParser = sequence([
+  letKeyword,
+  identifier,
+  equals,
+  stringLiteral,
+  semicolon
+]);
+
+// Run it on our input string.
+const result = declarationParser.parse('let user = "jane";');
+
+console.log(result);
+// Output: [ 'let', 'user', '=', 'jane', ';' ]
+```
+It worked! We got back an array of all the successfully parsed parts.
+
+### Step 4: Transforming the Result into Something Useful
+
+The array `['let', 'user', '=', 'jane', ';']` is correct, but it’s not very useful. We want a clean object like `{ name: 'user', value: 'jane' }`.
+
+The `sequence` combinator can take a second argument: a **mapper function**. This function receives the array of results and lets you transform it into any shape you want.
+
+This is also where `as const` becomes incredibly useful. By adding `as const` to our array of parsers, we give TypeScript more precise information. It knows *exactly* what type is at each position in the array (e.g., the first element is a `string`, the second is a `string`, etc.), giving us perfect type-safety and autocompletion in our mapper function!
+
+### Final Code: Putting It All Together
 
 ```typescript
 import { str, regex, sequence, between, lexeme } from '@doeixd/combi-parse';
 
-// 1. Define the small, individual pieces of our grammar.
-// `lexeme` is a helper that wraps a parser and also consumes any trailing whitespace.
+// 1. Define parsers for the smallest pieces (tokens).
+// `lexeme` is a helper that wraps a parser to also consume trailing whitespace.
 const letKeyword = lexeme(str('let'));
 const identifier = lexeme(regex(/[a-zA-Z_][a-zA-Z0-9_]*/));
 const equals = lexeme(str('='));
@@ -36,20 +136,25 @@ const semicolon = str(';');
 // A string literal is any text between double quotes.
 const stringLiteral = between(str('"'), regex(/[^"]*/), str('"'));
 
-// 2. Compose the pieces into a sequence.
-// `sequence` runs each parser in order and collects their results.
+// 2. Compose the small parsers into a larger one that understands a sequence.
 const declarationParser = sequence(
+  // The list of parsers to run in order.
   [
     letKeyword,
     identifier,
     equals,
     stringLiteral,
     semicolon,
-  ] as const, // `as const` gives us perfect type safety!
-  
+  ] as const, // `as const` tells TypeScript to infer the exact shape of the results array.
+
   // 3. Transform the raw results into a clean, structured object.
   // We only care about the identifier (name) and the string literal (value).
-  ([, name, , value]) => ({ type: 'declaration', name, value })
+  // Because of `as const`, TypeScript knows `name` and `value` are strings!
+  ([_let, name, _eq, value, _semi]) => ({
+    type: 'declaration',
+    name,
+    value
+  })
 );
 
 // 4. Run it!
@@ -59,31 +164,31 @@ const result = declarationParser.parse('let user = "jane";');
 console.log(result);
 // Output: { type: 'declaration', name: 'user', value: 'jane' }
 ```
-
-This example shows the core idea: **build big parsers by combining small ones.**
+And there you have it! You've seen the core idea: **build big, powerful parsers by combining small, simple ones.**
 
 <br />
 
 ## The Power of Composition: A Full JSON Parser
 
-You can use these same simple building blocks to create a complete, robust parser for a complex format like JSON.
+You can use these same building blocks to create a complete, robust parser for a complex format like JSON. This demonstrates how the simple ideas of `sequence`, `choice`, and `many` can scale up.
+
+A new concept here is `lazy()`. Since JSON can be recursive (an object can contain other objects), we need a way to reference a parser before it's fully defined. `lazy()` acts as a placeholder for this purpose.
 
 ```typescript
 import { str, regex, sequence, choice, between, many, sepBy, lazy, lexeme, Parser } from '@doeixd/combi-parse';
 
-// We define parsers for each part of the JSON spec. `lazy()` lets us
-// define recursive parsers (like a JSON value containing an array of values).
+// `lazy()` lets us define recursive parsers, since a `jsonValue`
+// can contain other `jsonValue`s (e.g., in an array or object).
 const jsonValue: Parser<any> = lazy(() => choice([
   str('null').map(() => null),
   str('true').map(() => true),
   str('false').map(() => false),
   regex(/-?\d+(\.\d+)?/).map(Number),
   between(str('"'), regex(/[^"]*/), str('"')),
-  jsonArray,  // A value can be an array
-  jsonObject  // Or a value can be an object
+  jsonArray,  // A value can be an array...
+  jsonObject  // ...or an object.
 ]));
 
-// A string is anything between double quotes.
 const jsonString = between(str('"'), regex(/[^"]*/), str('"'));
 
 // A property is a key-value pair, like "name": "John"
