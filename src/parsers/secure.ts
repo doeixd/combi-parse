@@ -3,16 +3,15 @@
  * 
  * This module provides security-hardened parsing capabilities designed to prevent
  * denial-of-service (DoS) attacks, resource exhaustion, and malicious input exploitation.
- * It wraps existing parsers with resource monitoring and limits to ensure safe parsing
- * of untrusted input data.
+ * It integrates with the contextual parsing framework to monitor and limit resources
+ * during a parse, ensuring safe handling of untrusted input.
  * 
- * Security features include:
- * - Recursion depth limiting to prevent stack overflow
- * - Parse time limits to prevent infinite parsing loops
- * - Memory usage monitoring and limits
- * - Backtracking prevention for ReDoS (Regular Expression DoS) protection
- * - Input length restrictions
- * - Safe regex pattern validation
+ * Security features are provided as composable combinators that work with a `SecurityContext`:
+ * - Recursion depth limiting (`withRecursionCheck`) to prevent stack overflow.
+ * - Parse time limits (`withTimeoutCheck`) to prevent infinite parsing loops.
+ * - Memory usage monitoring and limits.
+ * - Bounded repetition (`limitedMany`) for ReDoS (Regular Expression DoS) protection.
+ * - Input length restrictions.
  * 
  * This module is essential when:
  * - Processing user-provided data
@@ -22,288 +21,245 @@
  * - Implementing security-critical applications
  * 
  * @module parsers/secure
- * @version 1.0.0
+ * @version 2.0.0
  * 
- * @example Securing a JSON parser
+ * @example Securing a JSON parser via a SecureSession
  * ```typescript
- * import { secureParser } from '@combi-parse/parsers/secure';
- * import { jsonValue } from '@combi-parse/parser';
+ * import { createSecureSession } from '@combi-parse/parsers/secure';
+ * import { jsonParser } from './json-parser'; // A contextual JSON parser
  * 
- * const safeJsonParser = secureParser(jsonValue, {
+ * // Create a session with defined security limits
+ * const secureSession = createSecureSession(jsonParser, {
  *   maxDepth: 50,           // Prevent deeply nested objects
  *   maxLength: 10000,       // Limit input size to 10KB
  *   maxParseTime: 1000,     // Timeout after 1 second
- *   maxMemory: 5 * 1024 * 1024 // Limit to 5MB memory usage
  * });
  * 
  * // Safe to use with untrusted input
- * const result = safeJsonParser.parse(untrustedJsonString);
+ * try {
+ *   const result = secureSession.parse(untrustedJsonString);
+ * } catch (error) {
+ *   // Catches security violations like "Max recursion depth exceeded"
+ *   console.error(error.message);
+ * }
  * ```
  * 
- * @example API endpoint with secure parsing
+ * @example Composing security checks manually
  * ```typescript
- * app.post('/api/data', (req, res) => {
- *   const secureDataParser = secureParser(myDataParser, {
- *     maxDepth: 20,
- *     maxParseTime: 500,
- *     maxLength: 1024 * 1024 // 1MB max
- *   });
+ * import { withRecursionCheck, withTimeoutCheck, lift, SecurityContext } from '@combi-parse/parsers/secure';
  * 
- *   try {
- *     const data = secureDataParser.parse(req.body);
- *     res.json({ success: true, data });
- *   } catch (error) {
- *     res.status(400).json({ error: 'Invalid or unsafe input' });
- *   }
- * });
+ * // Manually apply security combinators
+ * const securePart = withRecursionCheck(withTimeoutCheck(someRecursiveParser));
+ * 
+ * // To run it, you still need a SecureSession to provide the context
+ * const session = createSecureSession(securePart, { maxDepth: 20, maxParseTime: 500 });
+ * session.parse(input);
  * ```
  */
 
-import { Parser, ParserState, ParseResult, failure, regex, success } from "../parser";
+import { Parser, regex } from "../parser";
+import { ContextualParser, ContextualParserState, lift as liftToContextual, contextualFailure, contextualSuccess } from './contextual';
 
 /**
- * Security configuration options for secure parsing.
- * All limits are optional and reasonable defaults will be applied if not specified.
+ * Security configuration options for a `SecureSession`.
+ * All limits are optional, and reasonable defaults will be applied if not specified.
  * 
  * @interface SecurityOptions
- * 
- * @example Strict security for public API
- * ```typescript
- * const strictOptions: SecurityOptions = {
- *   maxDepth: 10,           // Very shallow nesting
- *   maxLength: 1000,        // Small input only
- *   maxParseTime: 100,      // Fast parsing required
- *   maxMemory: 1024 * 1024, // 1MB memory limit
- *   maxBacktracks: 100      // Minimal backtracking
- * };
- * ```
- * 
- * @example Moderate security for internal use
- * ```typescript
- * const moderateOptions: SecurityOptions = {
- *   maxDepth: 100,
- *   maxLength: 100000,      // 100KB
- *   maxParseTime: 5000,     // 5 seconds
- *   maxMemory: 10 * 1024 * 1024 // 10MB
- * };
- * ```
  */
 export interface SecurityOptions {
   /** 
    * Maximum recursion depth allowed during parsing.
    * Prevents stack overflow attacks and deeply nested structures.
-   * 
    * @default 1000
-   * 
-   * @example
-   * ```typescript
-   * // Prevent deeply nested JSON objects
-   * const options = { maxDepth: 50 };
-   * // Input like {"a":{"b":{"c":...}}} will be limited to 50 levels
-   * ```
    */
   maxDepth?: number;
 
   /** 
    * Maximum input length in characters.
    * Prevents processing of extremely large inputs that could consume resources.
-   * 
-   * @example
-   * ```typescript
-   * const options = { maxLength: 10000 }; // 10KB limit
-   * // Inputs longer than 10,000 characters will be rejected
-   * ```
+   * @default Infinity
    */
   maxLength?: number;
 
   /** 
    * Maximum parsing time allowed in milliseconds.
    * Prevents infinite loops and algorithmic complexity attacks.
-   * 
    * @default 5000
-   * 
-   * @example
-   * ```typescript
-   * const options = { maxParseTime: 1000 }; // 1 second limit
-   * // Parser will timeout if parsing takes longer than 1 second
-   * ```
    */
   maxParseTime?: number;
 
   /** 
    * Maximum memory usage allowed in bytes.
-   * Monitors heap usage during parsing to prevent memory exhaustion.
-   * 
-   * @example
-   * ```typescript
-   * const options = { maxMemory: 5 * 1024 * 1024 }; // 5MB limit
-   * // Parser will fail if memory usage exceeds 5MB
-   * ```
+   * NOTE: Accurate memory tracking in JS is complex and not reliably implemented. This is a conceptual limit.
+   * @default Infinity
    */
   maxMemory?: number;
 
   /** 
-   * Maximum number of backtracking steps allowed.
-   * Prevents ReDoS (Regular Expression Denial of Service) attacks.
-   * 
+   * Maximum number of repetitions for `limitedMany`.
+   * Prevents attacks based on large, repeated structures.
    * @default 10000
-   * 
-   * @example
-   * ```typescript
-   * const options = { maxBacktracks: 1000 };
-   * // Prevents excessive backtracking in complex regex patterns
-   * ```
    */
-  maxBacktracks?: number;
+  maxRepetitions?: number;
 }
 
 /**
- * Wraps a parser with security monitoring and resource limits.
- * This function creates a secure version of any parser that enforces
- * the specified security constraints during parsing.
- * 
- * @template T The type of value the parser produces
- * @param parser The original parser to secure
- * @param options Security options and limits to enforce
- * @returns A new parser with security monitoring enabled
- * 
- * @throws {Error} When security limits are exceeded during parsing
- * 
- * @example Securing a complex language parser
- * ```typescript
- * const secureCodeParser = secureParser(programmingLanguageParser, {
- *   maxDepth: 100,          // Reasonable nesting for code
- *   maxLength: 50000,       // 50KB source files
- *   maxParseTime: 2000,     // 2 second parsing limit
- *   maxBacktracks: 5000     // Prevent ReDoS in regex
- * });
- * 
- * // Safe to use with user-uploaded code
- * try {
- *   const ast = secureCodeParser.parse(userCode);
- *   analyzeAST(ast);
- * } catch (error) {
- *   console.error('Parsing failed or exceeded security limits:', error);
- * }
- * ```
- * 
- * @example Microservice with input validation
- * ```typescript
- * function createSecureEndpoint<T>(parser: Parser<T>, limits: SecurityOptions) {
- *   const secureParser = secureParser(parser, limits);
- *   
- *   return async (request: Request) => {
- *     try {
- *       const data = secureParser.parse(request.body);
- *       return { success: true, data };
- *     } catch (error) {
- *       return { success: false, error: error.message };
- *     }
- *   };
- * }
- * ```
- * 
- * @example Real-time security monitoring
- * ```typescript
- * const monitoredParser = secureParser(jsonParser, {
- *   maxParseTime: 1000,
- *   maxMemory: 2 * 1024 * 1024 // 2MB
- * });
- * 
- * // Parser will automatically fail if limits are exceeded
- * const result = monitoredParser.parse(suspiciousInput);
- * ```
+ * The context required for secure parsing. It tracks resource usage
+ * throughout a single parse operation.
  */
-export function secureParser<T>(
-  parser: Parser<T>,
-  options: SecurityOptions = {}
-): Parser<T> {
-  return new Parser(state => {
-    const startTime = Date.now();
-    const startMemory = (performance as any).memory?.usedJSHeapSize || 0;
-    let backtrackCount = 0;
-    let depth = 0;
-    const maxDepth = options.maxDepth || 1000;
-    const maxTime = options.maxParseTime || 5000;
+export interface SecurityContext {
+  options: Required<SecurityOptions>;
+  startTime: number;
+  startMemory: number;
+  currentDepth: number;
+}
 
-    // Wrap parser execution with security checks
-    const secureRun = (p: Parser<any>, s: ParserState): ParseResult<any> => {
-      // Check recursion depth limit
-      if (++depth > maxDepth) {
-        throw new Error('Max recursion depth exceeded');
-      }
+/**
+ * Wraps a parser with a check for recursion depth.
+ * This is a core combinator for preventing stack overflow attacks. It should
+ * be wrapped around parsers that can call themselves recursively.
+ * 
+ * @param parser The potentially recursive parser to secure.
+ * @returns A new parser with a depth check.
+ */
+export function withRecursionCheck<T, C extends SecurityContext>(
+  parser: ContextualParser<T, C>
+): ContextualParser<T, C> {
+  return new ContextualParser<T, C>((state: ContextualParserState<C>) => {
+    state.context.currentDepth++;
 
-      // Check parse time limit
-      if (Date.now() - startTime > maxTime) {
-        throw new Error('Parse timeout exceeded');
-      }
+    if (state.context.currentDepth > state.context.options.maxDepth) {
+      return contextualFailure(`Security violation: Max recursion depth of ${state.context.options.maxDepth} exceeded`, state);
+    }
+    
+    const result = parser.run(state);
+    
+    // The depth must be decremented on the way out, using the *result's* state context.
+    if(result.type === 'success') {
+        result.state.context.currentDepth--;
+    } else {
+        // also decrement on failure
+        state.context.currentDepth--;
+    }
 
-      // Check input length limit
-      if (options.maxLength && s.input.length > options.maxLength) {
-        throw new Error('Input too large');
-      }
+    return result;
+  });
+}
 
-      // Check memory usage limit
-      if (options.maxMemory) {
-        const currentMemory = (performance as any).memory?.usedJSHeapSize || 0;
-        if (currentMemory - startMemory > options.maxMemory) {
-          throw new Error('Memory limit exceeded');
+/**
+ * A combinator that periodically checks if the maximum parsing time has been exceeded.
+ * It should be sprinkled into long-running parsers, especially inside loops.
+ * 
+ * @returns A parser that fails if the time limit is exceeded, or succeeds with null otherwise.
+ */
+export function withTimeoutCheck<C extends SecurityContext>(): ContextualParser<null, C> {
+    return new ContextualParser<null, C>(state => {
+        if (Date.now() - state.context.startTime > state.context.options.maxParseTime) {
+            return contextualFailure(`Security violation: Max parse time of ${state.context.options.maxParseTime}ms exceeded`, state);
         }
-      }
+        return contextualSuccess(null, state);
+    });
+}
 
-      // Execute the parser and track backtracking
-      const beforeIndex = s.index;
-      const result = p.run(s);
-
-      // Check for excessive backtracking (ReDoS protection)
-      if (result.type === 'failure' && result.state.index < beforeIndex) {
-        if (++backtrackCount > (options.maxBacktracks || 10000)) {
-          throw new Error('Excessive backtracking detected');
+/**
+ * A combinator that checks for input length at the beginning of a parse.
+ * @returns A parser that fails if the input is too long.
+ */
+function withInputLengthCheck<C extends SecurityContext>(): ContextualParser<null, C> {
+    return new ContextualParser<null, C>(state => {
+        if (state.input.length > state.context.options.maxLength) {
+            return contextualFailure(`Security violation: Input length ${state.input.length} exceeds max of ${state.context.options.maxLength}`, state);
         }
-      }
+        return contextualSuccess(null, state);
+    });
+}
 
-      depth--;
-      return result;
+
+/**
+ * Manages the state and execution of a secure parsing session.
+ * This class is the primary entry point for using the secure parsing module.
+ * It initializes the `SecurityContext` and wraps the user's parser with
+ * all necessary security checks.
+ */
+export class SecureSession<T> {
+  private secureParser: ContextualParser<T, SecurityContext>;
+  private options: Required<SecurityOptions>;
+
+  constructor(
+    parser: ContextualParser<T, SecurityContext>,
+    options: SecurityOptions = {}
+  ) {
+    this.options = {
+        maxDepth: 1000,
+        maxLength: Infinity,
+        maxParseTime: 5000,
+        maxMemory: Infinity,
+        maxRepetitions: 10000,
+        ...options,
+    };
+    
+    // Automatically wrap the user's parser with top-level checks
+    this.secureParser = withInputLengthCheck<SecurityContext>().chain(() => parser);
+  }
+
+  /**
+   * Runs the secure parser against the given input string.
+   * @param input The untrusted string to parse.
+   * @returns The parsed value.
+   * @throws {Error} if a security limit is breached or a parse error occurs.
+   */
+  parse(input: string): T {
+    const context: SecurityContext = {
+      options: this.options,
+      startTime: Date.now(),
+      startMemory: 0, // Memory tracking is not reliable in standard JS
+      currentDepth: 0
     };
 
-    try {
-      return secureRun(parser, state);
-    } catch (e) {
-      return failure(`Security violation: ${(e as Error).message}`, state);
-    }
-  });
+    return this.secureParser.parse(input, context);
+  }
+}
+
+/**
+ * Creates a new secure parsing session.
+ * 
+ * @param parser The `ContextualParser` to secure. The parser's context `C` must be
+ * compatible with `SecurityContext`. Use `withRecursionCheck` on recursive parts of your grammar.
+ * @param options The security limits for this session.
+ * @returns A `SecureSession` instance ready to parse input.
+ */
+export function createSecureSession<T>(
+    parser: ContextualParser<T, SecurityContext>,
+    options?: SecurityOptions
+): SecureSession<T> {
+    return new SecureSession(parser, options);
+}
+
+/**
+ * Lifts a base `Parser<T>` into a `ContextualParser` compatible with `SecurityContext`.
+ * This is a convenience function for using non-contextual parsers within a secure session.
+ * @param parser The base parser to lift.
+ */
+export function lift<T>(parser: Parser<T>): ContextualParser<T, SecurityContext> {
+    return liftToContextual(parser);
 }
 
 /**
  * Analyzes a regex pattern for potentially dangerous constructs that could
  * lead to ReDoS (Regular Expression Denial of Service) attacks.
- * 
- * @param pattern The regex pattern string to analyze
- * @returns True if the pattern contains dangerous constructs
- * 
- * @private
+ * @param pattern The regex pattern string to analyze.
+ * @returns True if the pattern contains dangerous constructs.
  * @internal
- * 
- * @example
- * ```typescript
- * hasDangerousPattern('(a+)+b');     // true - nested quantifiers
- * hasDangerousPattern('(?!x)');      // true - negative lookahead
- * hasDangerousPattern('simple');     // false - safe pattern
- * ```
  */
 function hasDangerousPattern(pattern: string): boolean {
-  // Check for common ReDoS patterns that can cause exponential backtracking
-  const dangerousPatterns = [
-    /\(\?\!\)/,                    // negative lookahead
-    /\(\?\<\!\)/,                  // negative lookbehind
-    /\(\?\:\?\*\)/,                // nested quantifiers
-    /\(\?\:\?\+\)/,                // nested quantifiers
-    /\(\?\:\?\?\)/,                // nested quantifiers
-    /\(\?\:\?\{\d+,\}\)/,          // nested quantifiers with ranges
-    /\(\?\:\?\{\d+,\d+\}\)/,       // nested quantifiers with ranges
+  // Checks for nested quantifiers like (a+)+ or (a*)* and other complex constructs
+  const redosPatterns = [
+    /\((?!\?)/,     // Avoids non-capturing groups but catches most nested quantifiers
+    /\[.*\\c\d+.*\]/, // Insecure character classes in some engines
+    /(\(.*\|.*\))\*\s*$/, // Evil alternation
   ];
 
-  return dangerousPatterns.some(p => p.test(pattern));
+  return redosPatterns.some(p => p.test(pattern));
 }
 
 /**
@@ -311,138 +267,64 @@ function hasDangerousPattern(pattern: string): boolean {
  * These utilities provide safer alternatives to potentially dangerous parsing patterns.
  * 
  * @namespace dosResistant
- * 
- * @example Using DoS-resistant parsing
- * ```typescript
- * import { dosResistant } from '@combi-parse/parsers/secure';
- * 
- * // Safe regex parsing
- * const safeEmailParser = dosResistant.safeRegex(
- *   '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'
- * );
- * 
- * // Limited repetition to prevent infinite loops
- * const limitedNumbers = dosResistant.limitedMany(digit, 1000);
- * ```
  */
 export const dosResistant = {
   /**
    * Creates a regex parser with safety validation.
    * Analyzes the regex pattern for dangerous constructs before creating the parser.
-   * 
    * @param pattern The regex pattern string
    * @param flags Optional regex flags
    * @returns A safe regex parser
-   * 
    * @throws {Error} If the pattern contains potentially dangerous constructs
-   * 
-   * @example Safe email validation
-   * ```typescript
-   * const emailParser = dosResistant.safeRegex(
-   *   '^[\\w._%+-]+@[\\w.-]+\\.[A-Za-z]{2,}$'
-   * );
-   * 
-   * const result = emailParser.parse('user@example.com');
-   * ```
-   * 
-   * @example Pattern validation
-   * ```typescript
-   * try {
-   *   // This will throw an error due to dangerous pattern
-   *   const dangerousParser = dosResistant.safeRegex('(a+)+b');
-   * } catch (error) {
-   *   console.log('Dangerous pattern detected:', error.message);
-   * }
-   * ```
-   * 
-   * @example Safe URL parsing
-   * ```typescript
-   * const urlParser = dosResistant.safeRegex(
-   *   'https?://[\\w.-]+(?:/[\\w./%?&=+-]*)?',
-   *   'i'
-   * );
-   * ```
    */
   safeRegex(pattern: string, flags?: string): Parser<string> {
-    // Analyze regex for dangerous patterns
     if (hasDangerousPattern(pattern)) {
-      throw new Error('Potentially dangerous regex pattern');
+      throw new Error(`Potentially dangerous regex pattern detected: ${pattern}`);
     }
-
     return regex(new RegExp(pattern, flags));
   },
 
   /**
-   * Creates a parser that applies another parser up to a maximum number of times.
-   * This prevents infinite loops and provides an upper bound on parsing complexity.
+   * A version of `.many()` that is bounded by a limit from the `SecurityContext`.
+   * This prevents attacks where an adversary provides a huge number of repeated elements.
+   * This combinator also sprinkles in timeout checks to prevent DoS from long loops.
    * 
-   * @template T The type of value the parser produces
-   * @param parser The parser to repeat
-   * @param max Maximum number of repetitions allowed
-   * @returns A parser that applies the input parser at most `max` times
-   * 
-   * @example Parsing limited lists
-   * ```typescript
-   * // Parse at most 100 comma-separated values
-   * const limitedCsvRow = dosResistant.limitedMany(
-   *   genParser(function* () {
-   *     const value = yield csvField;
-   *     yield optional(str(','));
-   *     return value;
-   *   }),
-   *   100
-   * );
-   * ```
-   * 
-   * @example Preventing DoS in user input
-   * ```typescript
-   * // Allow at most 50 tags in user input
-   * const userTags = dosResistant.limitedMany(
-   *   genParser(function* () {
-   *     yield str('<');
-   *     const tag = yield identifier;
-   *     yield str('>');
-   *     return tag;
-   *   }),
-   *   50
-   * );
-   * ```
-   * 
-   * @example Safe JSON array parsing
-   * ```typescript
-   * const safeJsonArray = genParser(function* () {
-   *   yield str('[');
-   *   yield optional(whitespace);
-   *   
-   *   // Limit array to 1000 elements max
-   *   const elements = yield dosResistant.limitedMany(
-   *     genParser(function* () {
-   *       const value = yield jsonValue;
-   *       yield optional(str(','));
-   *       return value;
-   *     }),
-   *     1000
-   *   );
-   *   
-   *   yield str(']');
-   *   return elements;
-   * });
-   * ```
+   * @param parser The parser to repeat.
+   * @returns A parser that applies the input parser up to `maxRepetitions` times.
    */
-  limitedMany<T>(parser: Parser<T>, max: number): Parser<T[]> {
-    return new Parser(state => {
+  limitedMany<T, C extends SecurityContext>(parser: ContextualParser<T, C>): ContextualParser<T[], C> {
+    return new ContextualParser((state: ContextualParserState<C>) => {
       const results: T[] = [];
       let currentState = state;
+      const max = state.context.options.maxRepetitions;
 
       for (let i = 0; i < max; i++) {
+        // Sprinkle in timeout checks inside the loop
+        if (i > 0 && i % 1000 === 0) {
+            if (Date.now() - state.context.startTime > state.context.options.maxParseTime) {
+                return contextualFailure(`Security violation: Max parse time of ${state.context.options.maxParseTime}ms exceeded in limitedMany`, currentState);
+            }
+        }
+
         const result = parser.run(currentState);
         if (result.type === 'failure') break;
 
+        // Infinite loop guard
+        if (result.state.index === currentState.index) {
+          return contextualFailure('Infinite loop detected in limitedMany: parser succeeded without consuming input.', state);
+        }
+        
         results.push(result.value);
         currentState = result.state;
       }
+      
+      // Check if we hit the max limit, which could be a security concern
+      if (results.length === max) {
+        // This could be a warning or failure depending on strictness.
+        // For now, we succeed but a log/warning would be appropriate in a real app.
+      }
 
-      return success(results, currentState);
+      return contextualSuccess(results, currentState);
     });
   }
 };

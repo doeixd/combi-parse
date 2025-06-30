@@ -52,9 +52,9 @@ const result = declarationParser.parse('let user = "jane";');
 
 ### Generator-Based Parsing
 ```typescript
-import { gen, str, regex } from '@doeixd/combi-parse';
+import { genParser, str, regex } from '@doeixd/combi-parse';
 
-const declarationParser = gen(function*() {
+const declarationParser = genParser(function*() {
   yield str('let');
   const name = yield regex(/[a-zA-Z_][a-zA-Z0-9_]*/);
   yield str('=');
@@ -67,21 +67,21 @@ const declarationParser = gen(function*() {
 
 ### Binary Data Parsing
 ```typescript
-import { BinaryParser } from '@doeixd/combi-parse/binary';
+import { Binary } from '@doeixd/combi-parse';
 
-const headerParser = BinaryParser.sequence([
-  BinaryParser.uint32(),     // File size
-  BinaryParser.string(4),    // Magic bytes
-  BinaryParser.uint16()      // Version
+const headerParser = Binary.sequence([
+  Binary.uint32LE,   // File size
+  Binary.string(4),  // Magic bytes
+  Binary.uint16      // Version
 ]);
 ```
 
 ### Stream Processing
 ```typescript
-import { StreamParser } from '@doeixd/combi-parse/stream';
+import { createStreamParser } from '@doeixd/combi-parse';
 
-const csvParser = StreamParser.create(csvRowParser)
-  .onResult(row => processRow(row))
+const csvParser = createStreamParser(csvRowParser)
+  .onItem(row => processRow(row))
   .onError(err => logError(err));
 ```
 
@@ -101,21 +101,21 @@ import { str, sequence, choice, many } from '@doeixd/combi-parse';
 ### 🔄 Generator-Based Parsing  
 Write parsers using JavaScript generators for more natural, imperative-style syntax.
 ```typescript
-import { gen } from '@doeixd/combi-parse';
+import { genParser } from '@doeixd/combi-parse';
 ```
 **Best for**: Complex parsing logic, conditional parsing, more readable code
 
 ### ⚙️ Binary Data Parsing
 Parse structured binary data like file formats and network protocols.
 ```typescript
-import { BinaryParser } from '@doeixd/combi-parse/binary';
+import { Binary } from '@doeixd/combi-parse/binary';
 ```
 **Best for**: File formats, network protocols, embedded systems
 
 ### 🌊 Stream Processing
 Real-time parsing of data streams with backpressure handling.
 ```typescript
-import { StreamParser } from '@doeixd/combi-parse/stream';
+import { createStreamParser } from '@doeixd/combi-parse/stream';
 ```
 **Best for**: Large files, real-time data, memory-constrained environments
 

@@ -1,25 +1,23 @@
 # Core Concepts
 
-This guide explains the fundamental concepts behind parser combinators and how Combi-Parse implements them.
+This guide explains the fundamental concepts behind parser combinators and how Combi-Parse implements them. Understanding these principles is key to using the library effectively.
 
 ## What is Parsing?
 
-Parsing is the process of taking structured text and converting it into meaningful data structures. Every time you:
+Parsing is the process of taking structured text and converting it into a meaningful data structure. You're parsing every time you:
 
-- Load a JSON file and convert it to objects
-- Parse command-line arguments into configuration
-- Read a CSV file and extract rows and columns
-- Process a configuration file for your application
-
-...you're performing parsing operations.
+-   Load a JSON file and convert it to objects.
+-   Parse command-line arguments into a configuration map.
+-   Read a CSV file and extract rows and columns.
+-   Process a configuration file (`.toml`, `.yaml`, `.env`) for your application.
 
 ## The Parser Combinator Approach
 
 ### Traditional Parsing vs. Combinators
 
-**Traditional parsing** often involves:
+**Traditional parsing** often involves writing manual, imperative code that is brittle and difficult to maintain:
 ```typescript
-// Manual, imperative parsing - brittle and hard to maintain
+// Manual, imperative parsing is hard to read and extend.
 function parseDeclaration(input: string) {
   let index = 0;
   
@@ -27,37 +25,34 @@ function parseDeclaration(input: string) {
   while (input[index] === ' ') index++;
   
   // Check for "let"
-  if (!input.substring(index, index + 3) === 'let') {
+  if (input.substring(index, index + 3) !== 'let') {
     throw new Error('Expected "let"');
   }
   index += 3;
   
-  // Skip whitespace
-  while (input[index] === ' ') index++;
-  
-  // Parse identifier... and so on
-  // This gets unwieldy fast!
+  // Skip more whitespace, then parse an identifier...
+  // This quickly becomes unmanageable!
 }
 ```
 
 **Parser combinators** offer a fundamentally different approach:
 
-> Instead of writing imperative code that manually tracks position and state, we compose declarative "recipes" that describe what we want to parse.
+> Instead of writing code that manually tracks position and state, we build small, declarative "recipes" (parsers) and combine them into more sophisticated ones.
 
 ## The Four Pillars of Parser Combinators
 
 ### 1. 🧱 Atomic Parsers: The Building Blocks
 
-Atomic parsers are simple, single-purpose parsers that recognize basic patterns:
+Atomic parsers are simple, single-purpose functions that recognize basic patterns. They are the foundation of any grammar.
 
 ```typescript
-import { str, regex, charClass } from '@doeixd/combi-parse';
+import { str, regex, charClass } from 'combi-parse';
 
-// Matches the exact string "hello"
-const helloParser = str('hello');
+// Matches the exact string "const"
+const constParser = str('const');
 
-// Matches one or more digits
-const digits = regex(/\d+/);
+// Matches one or more digits using a regular expression
+const digits = regex(/[0-9]+/);
 
 // Matches any single digit with full type safety
 const singleDigit = charClass('Digit');
@@ -66,81 +61,84 @@ const singleDigit = charClass('Digit');
 
 ### 2. 🔧 Combinator Functions: Assembly Instructions
 
-Combinators take simple parsers and combine them into more sophisticated ones:
+Combinators are higher-order functions that take simple parsers and assemble them into more complex ones. This is where the "composition" happens.
 
 ```typescript
-import { sequence, choice, many } from '@doeixd/combi-parse';
+import { sequence, choice, many } from 'combi-parse';
 
-// Parse things in order
-const greeting = sequence([
+// Parse things in order: `sequence([a, b, c])`
+const greetingParser = sequence([
   str('Hello'),
   str(' '),
   regex(/[A-Z][a-z]+/)
 ] as const);
 
-// Try alternatives
-const politeness = choice([
-  str('please'),
-  str('thank you'),
-  str('sorry')
+// Try alternatives until one succeeds: `choice([a, b, c])`
+const keywordParser = choice([
+  str('let'),
+  str('const'),
+  str('var')
 ]);
 
-// Parse repeated patterns
-const digits = charClass('Digit').many();
+// Parse a repeated pattern zero or more times: `p.many()`
+const commaSeparatedDigits = charClass('Digit').sepBy(str(','));
 ```
 
 ### 3. ⚡ Pure Functions: Predictable Behavior
 
-Every parser is a pure function - given the same input, it always produces the same result:
+Every parser in the library is a wrapper around a pure function. Given the same input and position, it always produces the same result without side effects.
 
 ```typescript
-// Conceptually, every parser is:
-type Parser<T> = (state: ParserState) => ParseResult<T>;
+// Conceptually, every parser is a function with this signature:
+type ParserFunction<T> = (state: ParserState) => ParseResult<T>;
 
-// This means parsers are:
-// - Predictable: same input → same output
-// - Composable: can be combined safely
-// - Testable: easy to unit test
-// - Reusable: no hidden state
+// This functional purity means parsers are:
+// - Predictable: Same input → same output.
+// - Composable: Can be combined safely without hidden state.
+// - Testable: Easy to unit test individual components of your grammar.
+// - Reusable: A parser for an `identifier` can be used anywhere one is needed.
 ```
 
 ### 4. 🔄 Automatic Plumbing: The Magic Behind the Scenes
 
-The library handles all the complex details automatically:
+The library handles all the complex, error-prone details of parsing for you:
 
-- **Position tracking**: Knows exactly where in the input each parser is working
-- **Backtracking**: When a parser fails, it automatically rewinds to try alternatives
-- **Error aggregation**: Collects and reports the most helpful error messages
-- **State threading**: Passes parsing state between combinators seamlessly
+-   **Position Tracking**: Knows exactly where in the input string each parser is working.
+-   **Backtracking**: When a `choice` fails, it automatically and safely rewinds the position to try the next alternative.
+-   **Error Aggregation**: Collects and reports the most helpful error message from the point in the input where parsing got the furthest.
+-   **State Threading**: Passes the parser's state (input and index) between combinators seamlessly.
 
 ## Key Concepts in Detail
 
 ### Parser State
 
-Every parser operation works with a parsing state:
+Every parser operation receives the current state and returns a new state upon success. The state is immutable, making backtracking safe.
 
 ```typescript
+// The state is simple and immutable.
 interface ParserState {
-  input: string;      // The text being parsed
-  index: number;      // Current position in the input
-  line: number;       // Current line number (for error reporting)
-  column: number;     // Current column number
+  readonly input: string;
+  readonly index: number;
 }
+
+// Note: Line and column numbers are calculated on demand from this state
+// when an error needs to be formatted for a user.
 ```
 
 ### Success and Failure
 
-Parsers return one of two types of results:
+A parser's `run` method returns a `ParseResult`, which is a discriminated union representing either a success or a failure.
 
 ```typescript
-type ParseResult<T> = 
-  | { success: true; value: T; newState: ParserState }
-  | { success: false; error: string; state: ParserState };
+// The two possible outcomes of running a parser
+type ParseResult<T> =
+  | { readonly type: 'success'; readonly value: T; readonly state: ParserState }
+  | { readonly type: 'failure'; readonly message: string; readonly state: ParserState };
 ```
 
 ### Backtracking
 
-When a parser fails, the parsing position automatically rewinds:
+When a parser in a `choice` or `or` fails *without consuming any input*, the library automatically backtracks, allowing the next parser to try from the same starting position.
 
 ```typescript
 const numberOrWord = choice([
@@ -149,161 +147,130 @@ const numberOrWord = choice([
 ]);
 
 // When parsing "hello":
-// 1. Try number.parse("hello") → fails at position 0
-// 2. Automatically backtrack to position 0
-// 3. Try word.parse("hello") → succeeds, returns "hello"
+// 1. `number.run("hello")` is called → fails at index 0.
+// 2. Because no input was consumed, the library backtracks.
+// 3. `word.run("hello")` is called from index 0 → succeeds.
 ```
 
-### Transformation Pipeline
+### The Transformation Pipeline
 
-Transform results as they flow through your parser:
+Parsers are monadic, meaning you can chain operations like `.map()` and `.chain()` to create a powerful data transformation pipeline.
 
 ```typescript
 const numberParser = regex(/\d+/)
-  .map(str => parseInt(str, 10))           // string → number
-  .map(n => n * 2)                        // double it
-  .chain(n => n > 100 ? fail('too big') : succeed(n)); // conditional logic
+  .map(str => parseInt(str, 10))                // string → number
+  .map(n => ({ value: n }))                      // number → { value: number }
+  .chain(obj =>                                  // Use the result to create a new parser
+    obj.value > 100 ? fail('too big') : succeed(obj)
+  );
 ```
 
 ## Type Safety
 
-One of Combi-Parse's key strengths is leveraging TypeScript's type system:
+Combi-Parse leverages TypeScript's advanced type system to catch errors at compile time and provide excellent autocompletion.
 
 ### Literal Type Preservation
 
+Using `as const` with `sequence` or `choice` preserves the exact string types, giving you a precise union or tuple type.
+
 ```typescript
-// Preserves exact string types
 const httpMethod = choice([
-  str('GET'),    // Type: Parser<'GET'>
-  str('POST'),   // Type: Parser<'POST'>
-  str('PUT'),    // Type: Parser<'PUT'>
-  str('DELETE')  // Type: Parser<'DELETE'>
-]);
-// Result type: Parser<'GET' | 'POST' | 'PUT' | 'DELETE'>
+  str('GET'),
+  str('POST'),
+  str('PUT'),
+] as const);
+// Result type: Parser<'GET' | 'POST' | 'PUT'>
 ```
 
 ### Tuple Type Inference
 
+The `sequence` combinator infers a perfectly typed tuple of its results.
+
 ```typescript
 const declaration = sequence([
-  str('let'),      // Type: Parser<'let'>
-  identifier,      // Type: Parser<string>
-  str('='),        // Type: Parser<'='>
-  number          // Type: Parser<number>
+  str('let'),      // Type: 'let'
+  identifier,      // Type: string
+  str('='),        // Type: '='
+  number           // Type: number
 ] as const);
 // Result type: Parser<['let', string, '=', number]>
 ```
 
 ### Character Class Types
 
+The `charClass` parser infers a union type of all possible characters it can match.
+
 ```typescript
 const digit = charClass('Digit');
 // Type: Parser<'0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'>
 
-const boolean = charClass('tf');
-// Type: Parser<'t'|'f'>
+const hexDigit = charClass('0123456789abcdef');
+// Type: Parser<'0'|'1'|'2'|...|'e'|'f'>
 ```
 
 ## Error Handling Philosophy
 
-Combi-Parse prioritizes helpful error messages:
+Combi-Parse is designed to produce human-friendly error messages out of the box.
 
-### Precise Location Tracking
+### Precise Location Tracking & Context
 
-```typescript
-// Error: Expected "function" at line 3, column 15
-```
-
-### Contextual Error Messages
+Errors automatically include line and column numbers, and the `context` combinator helps you explain what the parser was attempting to do.
 
 ```typescript
-const betterParser = context(
+import { context, label } from 'combi-parse';
+
+const userParser = context(
   sequence([
-    label(str('let'), 'let keyword'),
-    label(identifier, 'variable name'),
-    label(str('='), 'assignment operator'),
-    label(number, 'numeric value')
+    label(str('id:'), 'the id label'),
+    label(number, 'a numeric user id')
   ]),
-  'parsing variable declaration'
+  'a user record'
 );
 
-// Error: Expected variable name at line 1, column 5 while parsing variable declaration
+// If you parse "id: abc", you'll get a detailed, contextual error:
+// → Parse error at Line 1, Col 5: [in a user record] Expected a numeric user id but found "a"
 ```
 
-### Error Recovery
+### Building for Error Recovery
+
+The library's primitives can be used to build sophisticated error recovery mechanisms. Instead of stopping, you can define a rule that skips bad input and continues parsing.
 
 ```typescript
-import { recover } from '@doeixd/combi-parse';
-
-const robustParser = recover(fragileParser, {
-  on: ['ParseError'],
-  with: () => ({ type: 'error', message: 'Invalid syntax' }),
-  skipTo: [str(';'), str('\n')]
-});
+// A conceptual example of error recovery.
+const statement = choice([
+  validAssignment,
+  validFunctionCall,
+  // If no valid statement matches, this 'recovery' parser runs.
+  // It skips to the next semicolon and succeeds with an 'ErrorNode'.
+  recoverToSemicolon.map(skippedText => ({
+    type: 'ErrorNode',
+    message: 'Invalid statement syntax',
+    skipped: skippedText
+  }))
+]);
 ```
 
-## Memory Model
+## Key Architectural Decisions
 
 ### Immutable State
 
-All parsing operations create new state objects rather than mutating existing ones:
-
-```typescript
-// Each parser operation returns a new state
-const state1 = { input: "hello world", index: 0 };
-const result = str('hello').run(state1);
-// state1 is unchanged, result.newState is { input: "hello world", index: 5 }
-```
+All parsing operations are immutable. A parser receives a state and returns a **new** state object on success. The original state is never modified. This makes backtracking trivial and eliminates a whole class of bugs related to hidden state.
 
 ### Lazy Evaluation
 
-Parsers are lazy - they only do work when `.parse()` is called:
+Defining a parser is cheap. `const myParser = sequence([...])` just creates a lightweight object containing a function. No parsing work is done until you call `.parse(input)` on the final, composed parser. This allows for the definition of complex and even infinitely recursive grammars.
 
-```typescript
-// This just creates a parser object, no parsing happens yet
-const complexParser = sequence([a, b, c]);
+### Performance: Memoization and Left-Recursion
 
-// Parsing only happens here
-const result = complexParser.parse(input);
-```
+For performance-critical or highly recursive grammas, Combi-Parse provides advanced tools:
 
-## Performance Characteristics
-
-### Memoization
-
-Expensive parsers can be memoized for better performance:
-
-```typescript
-import { memo } from '@doeixd/combi-parse';
-
-const expensiveParser = memo(complexRegex);
-// Results are cached based on input position
-```
-
-### Left-Recursion Handling
-
-Special handling for left-recursive grammars:
-
-```typescript
-import { leftRecursive } from '@doeixd/combi-parse';
-
-const expression = leftRecursive(() => choice([
-  sequence([expression, str('+'), term]),  // Left-recursive rule
-  term                                     // Base case
-]));
-```
+-   **`memo(parser)`**: Wraps a parser to cache its result at each input position. This implements "Packrat parsing," which can dramatically speed up parsers with overlapping rules.
+-   **`leftRecursive(parserFn)`**: Provides a robust mechanism to handle left-recursive grammars (e.g., `expr = expr + term`) directly, which would cause an infinite loop in simple recursive descent parsers.
 
 ## Next Steps
 
-Now that you understand the core concepts, you can:
+Now that you understand the core concepts, you're ready to start building.
 
-- Follow the [Tutorial](tutorial.md) for hands-on examples
-- Explore the [API Reference](api/core.md) for detailed function documentation
-- Check out [Advanced Techniques](advanced-techniques.md) for complex scenarios
-- Review [Examples](examples/json.md) for real-world use cases
-
-## Further Reading
-
-- [Parser Combinators Explained](parser-combinators.md) - Deep dive into the theory
-- [Error Handling & Debugging](error-handling.md) - Advanced error handling techniques
-- [Performance Optimization](performance.md) - Making your parsers fast
+-   Follow the **Tutorial** for a hands-on example of building a JSON parser.
+-   Explore the **API Reference** for detailed function and method documentation.
+-   Review the **Error Handling & Debugging Guide** for advanced techniques.

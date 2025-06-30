@@ -1,595 +1,332 @@
-# JSON Parser Example
+# Tutorial: Building a Production-Ready JSON Parser
 
-This comprehensive example demonstrates building a complete JSON parser using Combi-Parse, showcasing real-world parser construction techniques.
+This comprehensive example demonstrates how to build a complete JSON parser using Combi-Parse. We will start with a basic functional parser and progressively layer on advanced features like robust error handling, schema validation, and different processing strategies, showcasing real-world parser construction techniques.
 
-## Basic JSON Parser
+## 1. The Basic JSON Parser
 
-Let's build a JSON parser step by step, starting with simple values and building up to complete JSON objects.
+First, we'll build a parser that understands the fundamental JSON grammar, starting with primitive values and composing them into arrays and objects.
 
 ### Primitive Values
 
+We define parsers for the core JSON data types.
+
 ```typescript
-import { 
-  str, regex, number, choice, between, 
-  sequence, genParser, lazy, many, sepBy 
+import {
+  Parser,
+  str,
+  regex,
+  choice,
+  between,
+  lazy,
+  many,
+  sepBy,
+  genParser,
+  failure,
+  success,
+  until
 } from 'combi-parse';
 
-// JSON string with escape sequences
-const jsonString = genParser(function* () {
-  yield str('"');
-  
-  const chars = yield many(choice([
-    // Escaped characters
-    genParser(function* () {
-      yield str('\\');
-      const escaped = yield choice([
-        str('"').map(() => '"'),
-        str('\\').map(() => '\\'),
-        str('/').map(() => '/'),
-        str('b').map(() => '\b'),
-        str('f').map(() => '\f'),
-        str('n').map(() => '\n'),
-        str('r').map(() => '\r'),
-        str('t').map(() => '\t'),
-        // Unicode escape: \uXXXX
-        genParser(function* () {
-          yield str('u');
-          const hex = yield regex(/[0-9a-fA-F]{4}/);
-          return String.fromCharCode(parseInt(hex, 16));
-        })
-      ]);
-      return escaped;
-    }),
-    // Regular character (not quote or backslash)
-    regex(/[^"\\]/)
-  ]));
-  
-  yield str('"');
-  return chars.join('');
-});
+// A parser for a JSON string, handling all valid escape sequences.
+// We use genParser for a clear, step-by-step definition.
+const jsonString = between(
+  str('"'),
+  many(
+    choice([
+      // Handle escaped characters like \", \\, \n, etc.
+      str('\\').keepRight(
+        choice([
+          str('"').map(() => '"'),
+          str('\\').map(() => '\\'),
+          str('/').map(() => '/'),
+          str('b').map(() => '\b'),
+          str('f').map(() => '\f'),
+          str('n').map(() => '\n'),
+          str('r').map(() => '\r'),
+          str('t').map(() => '\t'),
+          // Handle Unicode escape sequences, e.g., \uXXXX
+          str('u').keepRight(regex(/[0-9a-fA-F]{4}/)).map(hex =>
+            String.fromCharCode(parseInt(hex, 16))
+          ),
+        ])
+      ),
+      // Any character that is not a quote or a backslash
+      regex(/[^"\\]+/),
+    ])
+  ).map(chunks => chunks.join('')),
+  str('"')
+);
 
-// JSON number with scientific notation
-const jsonNumber = regex(/-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/)
-  .map(Number);
+// A parser for a JSON number, including integers, floats, and scientific notation.
+const jsonNumber = regex(/-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/).map(Number);
 
-// JSON boolean
+// A parser for JSON boolean values.
 const jsonBoolean = choice([
   str('true').map(() => true),
-  str('false').map(() => false)
+  str('false').map(() => false),
 ]);
 
-// JSON null
+// A parser for a JSON null value.
 const jsonNull = str('null').map(() => null);
 ```
 
 ### Whitespace Handling
 
+In JSON, whitespace is insignificant between tokens. We'll create a `lexeme` helper to automatically handle this, which drastically cleans up our grammar.
+
 ```typescript
-const ws = regex(/\s*/).optional();
+// A parser that consumes zero or more whitespace characters.
+const ws = regex(/\s*/);
 
-const lexeme = <T>(parser: Parser<T>) => 
-  parser.keepLeft(ws);
-
-// Wrapper for tokens that need whitespace handling
-const token = <T>(parser: Parser<T>) => lexeme(parser);
+// A lexeme is a parser that consumes any trailing whitespace but discards it.
+// We wrap all our structural tokens (like '[', ']', '{', '}', ',') with this.
+const lexeme = <T>(parser: Parser<T>): Parser<T> => parser.keepLeft(ws);
 ```
 
 ### Arrays and Objects
 
+Now we compose the primitives into arrays and objects. Because objects and arrays can contain other objects and arrays, this is a recursive grammar. We use `lazy()` to break the circular dependency.
+
 ```typescript
-// Forward declaration for recursive structures
-const jsonValue: Parser<any> = lazy(() => choice([
-  jsonString,
-  jsonNumber,
-  jsonBoolean,
-  jsonNull,
-  jsonArray,
-  jsonObject
-]));
+// A forward declaration for a JSON value, which can be any of the types we've defined.
+const jsonValue: Parser<any> = lazy(() =>
+  choice([
+    jsonString,
+    jsonNumber,
+    jsonBoolean,
+    jsonNull,
+    jsonArray, // Recursion
+    jsonObject, // Recursion
+  ])
+);
 
-// JSON array: [value, value, ...]
-const jsonArray = genParser(function* () {
-  yield token(str('['));
-  
-  const elements = yield jsonValue.sepBy(token(str(',')));
-  
-  yield token(str(']'));
-  return elements;
-});
+// A parser for a JSON array: [value, value, ...]
+const jsonArray = between(
+  lexeme(str('[')),
+  sepBy(jsonValue, lexeme(str(','))), // `sepBy` handles the comma separators.
+  lexeme(str(']'))
+);
 
-// JSON object: {"key": value, "key": value, ...}
-const jsonObject = genParser(function* () {
-  yield token(str('{'));
-  
-  const pairs = yield genParser(function* () {
-    const key = yield token(jsonString);
-    yield token(str(':'));
-    const value = yield jsonValue;
-    return [key, value];
-  }).sepBy(token(str(',')));
-  
-  yield token(str('}'));
-  
-  // Convert array of pairs to object
-  return Object.fromEntries(pairs);
-});
-
-// Complete JSON parser
-const json = genParser(function* () {
-  yield ws;
+// A helper parser for a single "key": value pair in an object.
+const jsonPair = genParser(function* () {
+  const key = yield jsonString;
+  yield lexeme(str(':'));
   const value = yield jsonValue;
-  yield ws;
-  return value;
+  return [key, value] as [string, any];
 });
+
+// A parser for a JSON object: {"key": value, "key": value, ...}
+const jsonObject = between(
+  lexeme(str('{')),
+  sepBy(jsonPair, lexeme(str(','))), // Parse comma-separated pairs
+  lexeme(str('}'))
+).map(pairs => Object.fromEntries(pairs)); // Convert the array of pairs to an object.
+
+// The complete JSON parser, which accounts for optional leading/trailing whitespace.
+const jsonParser = between(ws, jsonValue, ws);
+
+// --- Usage Example ---
+const jsonText = '{"users": [{"id": 1, "name": "Alice"}]}';
+const result = jsonParser.parse(jsonText);
+
+console.log(result.users[0].name); // → "Alice"
 ```
 
-## Usage Examples
+## 2. Enhanced Parser with Validation
 
-```typescript
-// Parse JSON string
-const jsonStr = '{"name": "John", "age": 30, "active": true}';
-const result = json.parse(jsonStr);
-console.log(result);
-// → { name: "John", age: 30, active: true }
+A basic parser is good, but a production-ready parser should provide excellent error messages and perform semantic validation (e.g., checking for duplicate keys in an object).
 
-// Parse JSON array
-const jsonArr = '[1, 2, {"nested": [3, 4]}, null]';
-const arrayResult = json.parse(jsonArr);
-console.log(arrayResult);
-// → [1, 2, { nested: [3, 4] }, null]
-
-// Parse complex JSON
-const complexJson = `{
-  "users": [
-    {
-      "id": 1,
-      "name": "Alice",
-      "email": "alice@example.com",
-      "preferences": {
-        "theme": "dark",
-        "notifications": true
-      }
-    },
-    {
-      "id": 2,
-      "name": "Bob",
-      "email": "bob@example.com",
-      "preferences": {
-        "theme": "light",
-        "notifications": false
-      }
-    }
-  ],
-  "meta": {
-    "version": "1.0",
-    "created": "2023-01-15T10:30:00Z"
-  }
-}`;
-
-const complexResult = json.parse(complexJson);
-console.log(complexResult.users[0].preferences.theme); // → "dark"
-```
-
-## Enhanced JSON Parser with Better Errors
-
-Let's improve the parser with better error messages and validation:
+Here, we'll enhance our parsers using Combi-Parse's `label`, `context`, and `tryMap` combinators.
 
 ```typescript
 import { label, context } from 'combi-parse';
 
-// Enhanced string parser with better error messages
-const enhancedJsonString = label(
-  genParser(function* () {
-    yield str('"');
-    
-    const chars = yield many(choice([
-      context(
-        genParser(function* () {
-          yield str('\\');
-          const escaped = yield choice([
-            str('"').map(() => '"'),
-            str('\\').map(() => '\\'),
-            str('/').map(() => '/'),
-            str('b').map(() => '\b'),
-            str('f').map(() => '\f'),
-            str('n').map(() => '\n'),
-            str('r').map(() => '\r'),
-            str('t').map(() => '\t'),
-            genParser(function* () {
-              yield str('u');
-              const hex = yield label(
-                regex(/[0-9a-fA-F]{4}/),
-                'four hexadecimal digits'
-              );
-              return String.fromCharCode(parseInt(hex, 16));
-            })
-          ]);
-          return escaped;
-        }),
-        'parsing escape sequence'
-      ),
-      regex(/[^"\\]/)
-    ]));
-    
-    yield str('"');
-    return chars.join('');
-  }),
-  'a JSON string'
-);
+// --- Enhanced Primitives with Better Error Messages ---
 
-// Enhanced number parser with validation
-const enhancedJsonNumber = label(
-  regex(/-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/)
-    .map(str => {
-      const num = Number(str);
-      if (!isFinite(num)) {
-        throw new Error(`Invalid number: ${str}`);
-      }
-      return num;
-    }),
-  'a valid JSON number'
-);
+const enhancedJsonString = label(jsonString, 'a JSON string');
+const enhancedJsonNumber = label(jsonNumber, 'a JSON number');
 
-// Enhanced array parser
-const enhancedJsonArray = context(
-  genParser(function* () {
-    yield token(str('['));
-    const elements = yield enhancedJsonValue.sepBy(token(str(',')));
-    yield token(str(']'));
-    return elements;
-  }),
-  'parsing JSON array'
-);
+// --- Enhanced Object Parser with Duplicate Key Validation ---
 
-// Enhanced object parser with duplicate key detection
-const enhancedJsonObject = context(
-  genParser(function* () {
-    yield token(str('{'));
-    
-    const pairs = yield genParser(function* () {
-      const key = yield token(enhancedJsonString);
-      yield token(str(':'));
-      const value = yield enhancedJsonValue;
-      return [key, value];
-    }).sepBy(token(str(',')));
-    
-    yield token(str('}'));
-    
-    // Check for duplicate keys
-    const keys = pairs.map(([key]) => key);
-    const uniqueKeys = new Set(keys);
-    if (keys.length !== uniqueKeys.size) {
-      const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
-      throw new Error(`Duplicate keys found: ${duplicates.join(', ')}`);
-    }
-    
-    return Object.fromEntries(pairs);
-  }),
-  'parsing JSON object'
-);
+const enhancedJsonPair = genParser(function* () {
+  // Add context to errors that happen while parsing a key.
+  const key = yield context(enhancedJsonString, 'object key');
+  yield lexeme(str(':'));
+  const value = yield enhancedJsonValue; // Uses the enhanced recursive value parser
+  return [key, value] as [string, any];
+});
 
-const enhancedJsonValue: Parser<any> = lazy(() => choice([
-  enhancedJsonString,
-  enhancedJsonNumber,
-  jsonBoolean,
-  jsonNull,
-  enhancedJsonArray,
-  enhancedJsonObject
-]));
-
-const enhancedJson = context(
-  genParser(function* () {
-    yield ws;
-    const value = yield enhancedJsonValue;
-    yield ws;
-    return value;
-  }),
-  'parsing JSON'
-);
-```
-
-## JSON Schema Validation Parser
-
-Create a parser that validates JSON against a schema:
-
-```typescript
-interface JsonSchema {
-  type: 'string' | 'number' | 'boolean' | 'array' | 'object' | 'null';
-  properties?: Record<string, JsonSchema>;
-  items?: JsonSchema;
-  required?: string[];
-  minLength?: number;
-  maxLength?: number;
-  minimum?: number;
-  maximum?: number;
-}
-
-const createSchemaParser = (schema: JsonSchema): Parser<any> => {
-  switch (schema.type) {
-    case 'string':
-      return genParser(function* () {
-        const value = yield jsonString;
-        if (schema.minLength && value.length < schema.minLength) {
-          throw new Error(`String too short: ${value.length} < ${schema.minLength}`);
-        }
-        if (schema.maxLength && value.length > schema.maxLength) {
-          throw new Error(`String too long: ${value.length} > ${schema.maxLength}`);
-        }
-        return value;
-      });
-      
-    case 'number':
-      return genParser(function* () {
-        const value = yield jsonNumber;
-        if (schema.minimum !== undefined && value < schema.minimum) {
-          throw new Error(`Number too small: ${value} < ${schema.minimum}`);
-        }
-        if (schema.maximum !== undefined && value > schema.maximum) {
-          throw new Error(`Number too large: ${value} > ${schema.maximum}`);
-        }
-        return value;
-      });
-      
-    case 'boolean':
-      return jsonBoolean;
-      
-    case 'null':
-      return jsonNull;
-      
-    case 'array':
-      return genParser(function* () {
-        yield token(str('['));
-        const elements = schema.items 
-          ? yield createSchemaParser(schema.items).sepBy(token(str(',')))
-          : yield jsonValue.sepBy(token(str(',')));
-        yield token(str(']'));
-        return elements;
-      });
-      
-    case 'object':
-      return genParser(function* () {
-        yield token(str('{'));
-        
-        const pairs = yield genParser(function* () {
-          const key = yield token(jsonString);
-          yield token(str(':'));
-          
-          const propertySchema = schema.properties?.[key];
-          const value = propertySchema 
-            ? yield createSchemaParser(propertySchema)
-            : yield jsonValue;
-            
-          return [key, value];
-        }).sepBy(token(str(',')));
-        
-        yield token(str('}'));
-        
-        const obj = Object.fromEntries(pairs);
-        
-        // Check required properties
-        if (schema.required) {
-          const missing = schema.required.filter(key => !(key in obj));
-          if (missing.length > 0) {
-            throw new Error(`Missing required properties: ${missing.join(', ')}`);
-          }
-        }
-        
-        return obj;
-      });
-      
-    default:
-      throw new Error(`Unsupported schema type: ${(schema as any).type}`);
+// The enhanced object parser separates structural parsing from semantic validation.
+const enhancedJsonObject = between(
+  lexeme(str('{')),
+  sepBy(enhancedJsonPair, lexeme(str(','))),
+  lexeme(str('}'))
+)
+// We use .tryMap to perform validation that can fail.
+// This is the idiomatic way to handle semantic checks in Combi-Parse.
+.tryMap(pairs => {
+  const keys = pairs.map(([key]) => key);
+  const uniqueKeys = new Set(keys);
+  
+  // If we find duplicate keys, we return a `failure` result.
+  if (keys.length !== uniqueKeys.size) {
+    const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
+    return failure(`Duplicate keys found in object: ${duplicates.join(', ')}`, undefined as any);
   }
-};
+  
+  // Otherwise, we return a `success` result with the final object.
+  return success(Object.fromEntries(pairs), undefined as any);
+});
 
-// Usage example
-const userSchema: JsonSchema = {
-  type: 'object',
-  required: ['name', 'email'],
-  properties: {
-    name: { type: 'string', minLength: 1 },
-    email: { type: 'string', minLength: 5 },
-    age: { type: 'number', minimum: 0, maximum: 150 },
-    active: { type: 'boolean' }
-  }
-};
+// --- Enhanced Recursive Structure ---
 
-const userParser = createSchemaParser(userSchema);
+const enhancedJsonValue: Parser<any> = lazy(() =>
+  choice([
+    enhancedJsonString,
+    enhancedJsonNumber,
+    jsonBoolean,
+    jsonNull,
+    label(between(
+      lexeme(str('[')),
+      sepBy(enhancedJsonValue, lexeme(str(','))),
+      lexeme(str(']'))
+    ), 'a JSON array'),
+    label(enhancedJsonObject, 'a JSON object'),
+  ])
+);
 
-// Valid user
-const validUser = userParser.parse('{"name": "John", "email": "john@example.com", "age": 25}');
-console.log(validUser); // → { name: "John", email: "john@example.com", age: 25 }
+const enhancedJsonParser = between(ws, enhancedJsonValue, ws);
 
-// Invalid user (missing email)
+// --- Usage Example ---
 try {
-  userParser.parse('{"name": "John"}');
+  // This will now fail with a clear, semantic error message.
+  enhancedJsonParser.parse('{"a": 1, "b": 2, "a": 3}');
 } catch (error) {
-  console.error(error.message); // → "Missing required properties: email"
+  // The error comes from our .tryMap logic, not a generic syntax error.
+  console.error(error.message); // → Parse error at Line 1, Col 1: Duplicate keys found in object: a
 }
 ```
 
-## Streaming JSON Parser
+## 3. SAX-Style (Event-Based) Parser
 
-Parse large JSON files incrementally:
+Sometimes, you want to process a large JSON document without building a complete in-memory Abstract Syntax Tree (AST). An event-based or "SAX-style" parser is perfect for this. It walks the document and emits events for each component it finds.
+
+> **Note:** This is different from parsing an *incremental stream* of separate JSON objects (like JSON Lines). For that, you would use Combi-Parse's dedicated `StreamSession` module. This example focuses on emitting events from a single, complete JSON document that is already in memory.
 
 ```typescript
-interface JsonStreamEvent {
-  type: 'startObject' | 'endObject' | 'startArray' | 'endArray' | 'property' | 'value';
-  key?: string;
+interface JsonEvent {
+  type: 'startObject' | 'endObject' | 'startArray' | 'endArray' | 'key' | 'value';
   value?: any;
   path: string[];
 }
 
-const createJsonStreamer = () => {
-  const events: JsonStreamEvent[] = [];
-  const pathStack: string[] = [];
-  
-  const emitEvent = (event: Omit<JsonStreamEvent, 'path'>) => {
-    events.push({ ...event, path: [...pathStack] });
-  };
-  
-  const streamingJsonValue: Parser<void> = lazy(() => choice([
-    // String value
-    jsonString.map(value => emitEvent({ type: 'value', value })),
+// An event-based parser doesn't return a value (it returns void).
+// Instead, it has a side effect: pushing events into an array.
+function createEventDrivenJsonParser(events: JsonEvent[], path: string[] = []): Parser<void> {
+  const emit = (type: JsonEvent['type'], value?: any) => events.push({ type, value, path: [...path] });
+
+  return lazy(() => choice([
+    // Primitives just emit a 'value' event
+    enhancedJsonNumber.map(v => emit('value', v)),
+    enhancedJsonString.map(v => emit('value', v)),
+    jsonBoolean.map(v => emit('value', v)),
+    jsonNull.map(() => emit('value', null)),
     
-    // Number value
-    jsonNumber.map(value => emitEvent({ type: 'value', value })),
+    // Arrays emit start/end events and recurse on their children.
+    between(
+      lexeme(str('[')).map(() => emit('startArray')),
+      sepBy(
+        // Recurse with an updated path for each element
+        genParser(function* (idxHolder = { i: 0 }) {
+            path.push((idxHolder.i++).toString());
+            yield createEventDrivenJsonParser(events, path);
+            path.pop();
+        }),
+        lexeme(str(','))
+      ),
+      lexeme(str(']')).map(() => emit('endArray'))
+    ),
     
-    // Boolean value
-    jsonBoolean.map(value => emitEvent({ type: 'value', value })),
-    
-    // Null value
-    jsonNull.map(value => emitEvent({ type: 'value', value })),
-    
-    // Array
-    genParser(function* () {
-      yield token(str('['));
-      emitEvent({ type: 'startArray' });
-      
-      let index = 0;
-      const elements = yield streamingJsonValue.sepBy(
+    // Objects emit start/end/key events and recurse.
+    between(
+      lexeme(str('{')).map(() => emit('startObject')),
+      sepBy(
         genParser(function* () {
-          yield token(str(','));
-          pathStack.push((index++).toString());
-          return undefined;
-        })
-      );
-      
-      yield token(str(']'));
-      emitEvent({ type: 'endArray' });
-      return undefined;
-    }),
-    
-    // Object
-    genParser(function* () {
-      yield token(str('{'));
-      emitEvent({ type: 'startObject' });
-      
-      yield genParser(function* () {
-        const key = yield token(jsonString);
-        pathStack.push(key);
-        emitEvent({ type: 'property', key });
-        
-        yield token(str(':'));
-        yield streamingJsonValue;
-        
-        pathStack.pop();
-        return undefined;
-      }).sepBy(token(str(',')));
-      
-      yield token(str('}'));
-      emitEvent({ type: 'endObject' });
-      return undefined;
-    })
+            const key = yield lexeme(jsonString);
+            emit('key', key);
+            yield lexeme(str(':'));
+            
+            // Recurse with the key added to the path
+            path.push(key);
+            yield createEventDrivenJsonParser(events, path);
+            path.pop();
+        }),
+        lexeme(str(','))
+      ),
+      lexeme(str('}')).map(() => emit('endObject'))
+    ),
   ]));
-  
-  return {
-    parse: (jsonText: string) => {
-      events.length = 0;
-      pathStack.length = 0;
-      
-      const parser = genParser(function* () {
-        yield ws;
-        yield streamingJsonValue;
-        yield ws;
-      });
-      
-      parser.parse(jsonText);
-      return events;
-    },
-    
-    getEvents: () => [...events]
-  };
-};
-
-// Usage
-const streamer = createJsonStreamer();
-const events = streamer.parse('{"users": [{"name": "Alice"}, {"name": "Bob"}]}');
-
-events.forEach(event => {
-  console.log(`${event.path.join('.')}: ${event.type}${event.value !== undefined ? ` = ${JSON.stringify(event.value)}` : ''}`);
-});
-
-// Output:
-// : startObject
-// users: property
-// users: startArray
-// users.0: startObject
-// users.0.name: property
-// users.0.name: value = "Alice"
-// users.0: endObject
-// users.1: startObject
-// users.1.name: property
-// users.1.name: value = "Bob"
-// users.1: endObject
-// users: endArray
-// : endObject
-```
-
-## Performance Comparison
-
-Compare different JSON parsing approaches:
-
-```typescript
-const benchmarkJson = (jsonString: string, iterations = 1000) => {
-  // Native JSON.parse
-  const nativeStart = performance.now();
-  for (let i = 0; i < iterations; i++) {
-    JSON.parse(jsonString);
-  }
-  const nativeTime = performance.now() - nativeStart;
-  
-  // Combi-Parse JSON parser
-  const combiStart = performance.now();
-  for (let i = 0; i < iterations; i++) {
-    json.parse(jsonString);
-  }
-  const combiTime = performance.now() - combiStart;
-  
-  console.log(`Native JSON.parse: ${nativeTime.toFixed(2)}ms`);
-  console.log(`Combi-Parse: ${combiTime.toFixed(2)}ms`);
-  console.log(`Ratio: ${(combiTime / nativeTime).toFixed(2)}x slower`);
-};
-
-const testJson = '{"name": "John", "age": 30, "hobbies": ["reading", "programming"]}';
-benchmarkJson(testJson);
-```
-
-## Error Recovery
-
-Implement error recovery for malformed JSON:
-
-```typescript
-const recoverableJson = genParser(function* () {
-  const errors: string[] = [];
-  
-  const tryParse = <T>(parser: Parser<T>, fallback: T, errorMsg: string): Promise<T> =>
-    genParser(function* () {
-      try {
-        return yield parser;
-      } catch (error) {
-        errors.push(`${errorMsg}: ${error.message}`);
-        return fallback;
-      }
-    });
-  
-  const result = yield tryParse(
-    enhancedJsonValue,
-    null,
-    'Failed to parse JSON'
-  );
-  
-  return { value: result, errors };
-});
-
-// Parse malformed JSON with recovery
-const malformedJson = '{"name": "John", "age": 30, "hobbies": [reading", "programming"]}';
-try {
-  const result = recoverableJson.parse(malformedJson);
-  console.log('Parsed with errors:', result);
-} catch (error) {
-  console.error('Complete parsing failure:', error.message);
 }
+
+
+// --- Usage Example ---
+const events: JsonEvent[] = [];
+const eventParser = createEventDrivenJsonParser(events);
+eventParser.parse('{"user": {"name": "Beth", "active": true}}');
+
+events.forEach(e => console.log(`${e.path.join('.')} [${e.type}]`, e.value ?? ''));
+// Output:
+//  [startObject] 
+// user [key] user
+// user [startObject] 
+// user.name [key] name
+// user.name [value] Beth
+// user.active [key] active
+// user.active [value] true
+// user [endObject] 
+//  [endObject] 
 ```
 
-This comprehensive JSON parser example demonstrates how Combi-Parse can be used to build real-world parsers with features like error recovery, schema validation, streaming, and performance optimization. The modular approach allows you to start simple and add complexity as needed.
+## 4. Error Recovery
+
+A robust parser for user-facing input should be able to recover from syntax errors, parsing as much valid content as possible. We can achieve this by defining a "recovery" parser that consumes input until it finds a safe place to resume.
+
+```typescript
+// A parser that consumes input until it reaches a structural token (like a comma or closing brace).
+// This allows us to skip over a malformed value.
+const skippedValue = until(choice([str(','), str('}'), str(']')])).map(skipped => ({
+  __error: 'skipped malformed value',
+  skippedText: skipped.trim(),
+}));
+
+// Create a version of our JSON value parser that attempts to recover on failure.
+const recoverableJsonValue: Parser<any> = lazy(() => choice([
+  // First, try to parse a valid value.
+  enhancedJsonValue,
+  // If that fails, run our recovery parser.
+  skippedValue,
+]));
+
+// We build the rest of the parser using this new `recoverableJsonValue`.
+const recoverableArray = between(
+  lexeme(str('[')),
+  sepBy(recoverableJsonValue, lexeme(str(','))),
+  lexeme(str(']'))
+);
+// ... and so on for objects ...
+const recoverableParser = recoverableArray; // Using array parser for this example.
+
+// --- Usage Example ---
+// This JSON has a malformed string (`"a"b`) and a missing comma.
+const malformedInput = '[1, "a"b, {"c": 3} 4, 5]';
+const recoveredResult = recoverableParser.parse(malformedInput);
+
+console.log(recoveredResult);
+// Output:
+// [
+//   1,
+//   { __error: 'skipped malformed value', skippedText: '"a"b' },
+//   { c: 3 },
+//   4,
+//   5
+// ]
+```
