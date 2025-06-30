@@ -286,6 +286,5 @@ We welcome contributions! Please see our contributing guidelines for details on 
 - Improve documentation
 - Add examples and tutorials
 
----
 
 **Ready to start parsing?** Check out the [Core Concepts](docs/core-concepts.md) to understand the fundamentals, then explore the [API Documentation](docs/api/overview.md) to find the right tools for your use case.
