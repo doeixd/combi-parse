@@ -1,9 +1,3 @@
-Of course. By integrating the information about the generator-based parsing style, I can create a much more comprehensive and powerful guide. This version will not only explain *what* tools to use for streaming but also *how* to build the parsers themselves in a modern, readable way, and then show how these two concepts compose beautifully.
-
-Here is the rewritten, definitive guide.
-
-***
-
 # The Complete Guide to Async, Streaming, and Generator Parsing
 
 Combi-Parse offers a sophisticated suite of tools for handling asynchronous data, real-time streams, and complex grammars. This guide covers everything from the two primary styles of parser construction to the powerful execution engines for streaming and async logic, showing how they all fit together.

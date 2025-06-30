@@ -1,290 +1,176 @@
+Of course. Here is the revised `README.md` with a `<br />` tag and an extra newline before each `<h2>` header for better visual separation.
+
+---
+
+### Improved `README.md` (with spacing)
+
 [![NPM Version](https://img.shields.io/npm/v/@doeixd/combi-parse.svg)](https://www.npmjs.com/package/@doeixd/combi-parse)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 [![TypeScript](https://img.shields.io/badge/%3C/%3E-TypeScript-%230074c1.svg)](http://www.typescriptlang.org/)
 
 # Combi-Parse
-A comprehensive, type-safe parser combinator library for TypeScript with multiple parsing approaches and advanced features.
 
-Transform structured text into meaningful data structures with full type safety, comprehensive error reporting, and multiple parsing paradigms to suit any use case.
+A friendly, powerful, and type-safe parser combinator library for TypeScript. It helps you transform structured text into meaningful data with confidence and clarity.
 
-## ✨ Key Features
-
-*   🎯 **Multiple Parsing Approaches**: Traditional combinators, generator-based syntax, streaming, binary data, and more
-*   ✅ **Type-Safe by Design**: Full TypeScript integration with precise type inference and compile-time validation
-*   🧩 **Highly Composable**: Build complex parsers by combining simple, reusable components
-*   📍 **Detailed Error Reporting**: Precise error locations with contextual messages and recovery strategies
-*   ⚡ **High Performance**: Memoization, left-recursion handling, and grammar optimization built-in
-*   🛡️ **Production Ready**: Security-hardened parsers, DoS protection, and comprehensive testing utilities
-*   🔄 **Advanced Features**: Binary parsing, streaming, incremental parsing, and type-level regex engine
+Combi-Parse is built on the idea that parsing shouldn't be a tedious and error-prone task. By providing a set of simple, composable building blocks, it allows you to describe the structure of your data declaratively. The library handles the complex details—like tracking position, managing state, and reporting errors—so you can focus on your grammar.
 
 <br />
 
 ## 📥 Installation
 
 ```bash
-# Using npm
-npm i @doeixd/combi-parse
+npm install @doeixd/combi-parse
 ```
 
 <br />
 
-## 🚀 Quick Examples
+## 🚀 Quick Start: Your First Parser
 
-### Traditional Combinators
+Let's build a simple parser for a variable declaration, like `let user = "jane";`.
+
 ```typescript
 import { str, regex, sequence, between, lexeme } from '@doeixd/combi-parse';
 
-const identifier = regex(/[a-zA-Z_][a-zA-Z0-9_]*/);
+// 1. Define the small, individual pieces of our grammar.
+// `lexeme` is a helper that wraps a parser and also consumes any trailing whitespace.
+const letKeyword = lexeme(str('let'));
+const identifier = lexeme(regex(/[a-zA-Z_][a-zA-Z0-9_]*/));
+const equals = lexeme(str('='));
+const semicolon = str(';');
+
+// A string literal is any text between double quotes.
 const stringLiteral = between(str('"'), regex(/[^"]*/), str('"'));
 
-const declarationParser = sequence([
-  lexeme(str('let')),
-  lexeme(identifier),
-  lexeme(str('=')),
-  stringLiteral,
-  str(';')
-] as const, ([, name, , value]) => ({ type: 'declaration', name, value }));
+// 2. Compose the pieces into a sequence.
+// `sequence` runs each parser in order and collects their results.
+const declarationParser = sequence(
+  [
+    letKeyword,
+    identifier,
+    equals,
+    stringLiteral,
+    semicolon,
+  ] as const, // `as const` gives us perfect type safety!
+  
+  // 3. Transform the raw results into a clean, structured object.
+  // We only care about the identifier (name) and the string literal (value).
+  ([, name, , value]) => ({ type: 'declaration', name, value })
+);
 
+// 4. Run it!
 const result = declarationParser.parse('let user = "jane";');
+
+// The output is a perfectly typed and structured object.
+console.log(result);
 // Output: { type: 'declaration', name: 'user', value: 'jane' }
 ```
 
-### Generator-Based Parsing
-```typescript
-import { genParser, str, regex } from '@doeixd/combi-parse';
-
-const declarationParser = genParser(function*() {
-  yield str('let');
-  const name = yield regex(/[a-zA-Z_][a-zA-Z0-9_]*/);
-  yield str('=');
-  const value = yield stringLiteral;
-  yield str(';');
-  
-  return { type: 'declaration', name, value };
-});
-```
-
-### Binary Data Parsing
-```typescript
-import { Binary } from '@doeixd/combi-parse';
-
-const headerParser = Binary.sequence([
-  Binary.uint32LE,   // File size
-  Binary.string(4),  // Magic bytes
-  Binary.uint16      // Version
-]);
-```
-
-### Stream Processing
-```typescript
-import { createStreamParser } from '@doeixd/combi-parse';
-
-const csvParser = createStreamParser(csvRowParser)
-  .onItem(row => processRow(row))
-  .onError(err => logError(err));
-```
+This example shows the core idea: **build big parsers by combining small ones.**
 
 <br />
 
-## 🧩 Multiple Parsing Approaches
+## The Power of Composition: A Full JSON Parser
 
-Combi-Parse provides several specialized parsing approaches for different use cases:
-
-### 🔧 Traditional Combinators
-The classic functional approach - build parsers by combining simple functions.
-```typescript
-import { str, sequence, choice, many } from '@doeixd/combi-parse';
-```
-**Best for**: General parsing, functional programming style, composable parsers
-
-### 🔄 Generator-Based Parsing  
-Write parsers using JavaScript generators for more natural, imperative-style syntax.
-```typescript
-import { genParser } from '@doeixd/combi-parse';
-```
-**Best for**: Complex parsing logic, conditional parsing, more readable code
-
-### ⚙️ Binary Data Parsing
-Parse structured binary data like file formats and network protocols.
-```typescript
-import { Binary } from '@doeixd/combi-parse/binary';
-```
-**Best for**: File formats, network protocols, embedded systems
-
-### 🌊 Stream Processing
-Real-time parsing of data streams with backpressure handling.
-```typescript
-import { createStreamParser } from '@doeixd/combi-parse/stream';
-```
-**Best for**: Large files, real-time data, memory-constrained environments
-
-### 📝 Incremental Parsing
-Editor-optimized parsing with efficient change tracking and recomputation.
-```typescript
-import { IncrementalParser } from '@doeixd/combi-parse/incremental';
-```
-**Best for**: Code editors, IDEs, live preview systems
-
-### 🛡️ Secure Parsing
-Security-hardened parsers with DoS protection and resource limits.
-```typescript
-import { SecureParser } from '@doeixd/combi-parse/secure';
-```
-**Best for**: User-generated content, API endpoints, untrusted input
-
-### 🎯 Type-Level Regex Engine
-Compile-time regex validation with full type safety.
-```typescript
-import type { CompileRegex, Match } from '@doeixd/combi-parse/regex';
-```
-**Best for**: Compile-time validation, configuration parsing, type-safe patterns
-
-## 📖 Documentation
-
-**Complete documentation is available in the [docs/](docs/) directory:**
-
-### 🚀 Getting Started
-- **[Core Concepts](docs/core-concepts.md)** - Understanding parser combinators
-- **[API Overview](docs/api/overview.md)** - Choose the right parsing approach
-- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
-
-### 📚 API Reference
-- **[Core API](docs/api/core.md)** - Traditional combinators and basic functionality
-- **[Generators API](docs/api/generators.md)** - Generator-based parsing
-- **[Parsers API](docs/api/parsers.md)** - Specialized parsers (binary, stream, secure, etc.)
-- **[Primitives API](docs/api/primitives.md)** - Advanced primitives and utilities
-
-### 🎯 Specialized Topics
-- **[Async & Streaming](docs/async-streaming.md)** - Real-time and asynchronous parsing
-- **[Character Classes](docs/character-classes.md)** - Type-safe character classification
-
-### 🔍 Need Help?
-- Check the **[Troubleshooting Guide](docs/troubleshooting.md)** for common issues
-- Review the **[API Documentation](docs/api/overview.md)** for detailed references
-- See **[Real-world Examples](docs/async-streaming.md#real-world-examples)** for practical implementations
-
-## 🤔 Why Parser Combinators?
-
-Traditional parsing approaches are brittle and hard to maintain:
+You can use these same simple building blocks to create a complete, robust parser for a complex format like JSON.
 
 ```typescript
-// Traditional approach - brittle and hard to maintain
-function parseDeclaration(input: string) {
-  let index = 0;
-  
-  // Skip whitespace
-  while (input[index] === ' ') index++;
-  
-  // Check for "let"
-  if (!input.substring(index, index + 3) === 'let') {
-    throw new Error('Expected "let"');
-  }
-  index += 3;
-  
-  // Skip whitespace
-  while (input[index] === ' ') index++;
-  
-  // Parse identifier... and so on
-  // This gets unwieldy fast!
-}
-```
+import { str, regex, sequence, choice, between, many, sepBy, lazy, lexeme, Parser } from '@doeixd/combi-parse';
 
-**Parser combinators offer a fundamentally different approach:**
-
-> Instead of writing imperative code that manually tracks position and state, we compose declarative "recipes" that describe what we want to parse.
-
-### The Power of Composition
-
-Build complex parsers from simple, reusable pieces:
-
-**🧱 Atomic Parsers**: Simple building blocks like `str('hello')`, `regex(/\d+/)`, `charClass('Digit')`
-
-**🔧 Combinators**: Assembly instructions like `sequence()`, `choice()`, `many()`
-
-**⚡ Pure Functions**: Predictable, composable, testable
-
-**🔄 Automatic Plumbing**: Position tracking, backtracking, error handling
-
-### Complete JSON Parser Example
-
-```typescript
-import { str, regex, sequence, choice, between, many, lexeme } from '@doeixd/combi-parse';
-
-// Build a complete JSON parser from simple pieces
-const jsonValue = choice([
+// We define parsers for each part of the JSON spec. `lazy()` lets us
+// define recursive parsers (like a JSON value containing an array of values).
+const jsonValue: Parser<any> = lazy(() => choice([
   str('null').map(() => null),
   str('true').map(() => true),
   str('false').map(() => false),
-  regex(/\d+/).map(Number),
-  between(str('"'), regex(/[^"]*/), str('"')), // String
-  between(str('['), sepBy(lazy(() => jsonValue), str(',')), str(']')), // Array  
-  between(str('{'), sepBy(jsonProperty, str(',')), str('}'))
-    .map(pairs => Object.fromEntries(pairs)) // Object
-]);
-
-const jsonProperty = sequence([
+  regex(/-?\d+(\.\d+)?/).map(Number),
   between(str('"'), regex(/[^"]*/), str('"')),
-  lexeme(str(':')),
-  jsonValue
-], ([key, , value]) => [key, value]);
+  jsonArray,  // A value can be an array
+  jsonObject  // Or a value can be an object
+]));
 
-// Parse complex JSON
-const result = jsonValue.parse('{"users": [{"name": "John", "age": 30}]}');
+// A string is anything between double quotes.
+const jsonString = between(str('"'), regex(/[^"]*/), str('"'));
+
+// A property is a key-value pair, like "name": "John"
+const jsonProperty = sequence(
+  [lexeme(jsonString), str(':'), jsonValue] as const,
+  ([key, , value]) => [key, value]
+);
+
+// An object is a comma-separated list of properties between curly braces.
+const jsonObject = between(
+  lexeme(str('{')),
+  sepBy(jsonProperty, lexeme(str(','))),
+  str('}')
+).map(pairs => Object.fromEntries(pairs));
+
+// An array is a comma-separated list of values between square brackets.
+const jsonArray = between(
+  lexeme(str('[')),
+  sepBy(jsonValue, lexeme(str(','))),
+  str(']')
+);
+
+// Run the final parser on a complex JSON string.
+const parsed = jsonValue.parse('{"users": [{"id": 1, "name": "Alice"}]}');
+console.log(parsed.users[0].name); // "Alice"
 ```
+This parser is readable, reusable, and type-safe. Each component can be tested and used independently.
 
-This example demonstrates the core principles:
-- **Composability**: Complex parsers built from simple pieces
-- **Type Safety**: Full TypeScript integration
-- **Readability**: Code reads like a grammar specification
-- **Reusability**: Each piece can be used independently
+<br />
 
-## 🚀 Get Started
+## ✨ Core Philosophy
 
-1. **Install**: `npm install @doeixd/combi-parse`
-2. **Learn**: Read the [Core Concepts](docs/core-concepts.md)
-3. **Choose**: Pick your [parsing approach](docs/api/overview.md)
-4. **Build**: Create your parser
-5. **Debug**: Use the [troubleshooting guide](docs/troubleshooting.md) if needed
+We designed Combi-Parse around a few key principles to make parsing a better experience.
 
-## 🌟 What Makes This Special
+*   ✅ **Type-Safety First**: The library leverages TypeScript's type system to the fullest. You get precise type inference and compile-time validation, so if your grammar changes, your code will tell you what needs fixing.
 
-### 🎯 **Multiple Paradigms**
-- Traditional combinators for functional programming
-- Generator syntax for imperative-style parsing
-- Stream processing for real-time data
-- Binary parsing for structured data formats
+*   🧩 **Radical Composability**: Every parser is a small, reusable component. This lets you build incredibly complex grammars from simple, testable pieces. A parser for a `number` can be used in a parser for a `date`, which can be used in a parser for a `log file`.
 
-### ✅ **Production Ready**
-- Security-hardened parsers with DoS protection
-- Comprehensive error recovery mechanisms
-- Performance optimization and profiling tools
-- Extensive testing utilities and property-based testing
+*   📍 **Human-Friendly Errors**: Say goodbye to `undefined is not a function`. Combi-Parse gives you precise error locations with line and column numbers, along with contextual messages that tell you *what* the parser was trying to do when it failed.
 
-### 🔬 **Advanced Features**
-- Type-level regex engine for compile-time validation
-- Incremental parsing for editor integration
-- Grammar analysis and optimization
-- Parser algebra operations
+*   🛠️ **A Tool for Every Task**: Real-world parsing is more than just text. Combi-Parse provides specialized toolkits for different domains, so you always have the right tool for the job.
 
-### 📚 **Developer Experience**
-- Comprehensive documentation with real-world examples
-- Interactive debugging and visualization tools
-- Detailed error messages with context
-- Property-based testing and fuzzing support
+<br />
 
-## 📄 License
+## 🧰 A Tool for Every Task: Parsing Paradigms
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Combi-Parse gives you a toolkit of specialized approaches so you can choose the right one for your project.
+
+| Paradigm | Best For... | Example |
+| :--- | :--- | :--- |
+| **Traditional Combinators** | General parsing, functional style | `sequence([a, b, c])` |
+| **Generator-Based Parsing** | Complex, multi-step, or stateful logic | `genParser(function*() { ... })` |
+| **Binary Data Parsing** | File formats, network protocols | `Binary.u32LE` |
+| **Stream Processing** | Large files, real-time data feeds | `createStreamParser(...)` |
+| **Incremental Parsing** | Code editors, IDEs, live previews | `IncrementalParser.create(...)` |
+| **Secure Parsing** | Untrusted user input, API endpoints | `SecureParser.create(...)` |
+| **Type-Level Regex** | Compile-time validation, type-safe patterns | `type Email = CompileRegex<'...'>` |
+
+<br />
+
+## 📖 Documentation & Learning
+
+Ready to build your own parser? We have comprehensive documentation to guide you.
+
+| To... | See... |
+| :--- | :--- |
+| **Understand the fundamentals** | **[Core Concepts](docs/core-concepts.md)** |
+| **See all available functions** | **[API Overview](docs/api/overview.md)** |
+| **Fix a common problem** | **[Troubleshooting Guide](docs/troubleshooting.md)** |
+| **Parse a binary file format** | **[Binary Parsing Guide](docs/binary.md)** |
+| **Handle a real-time data feed**| **[Async & Streaming Guide](docs/async-streaming.md)** |
+| **Write a type-safe regex** | **[Type-Level Regex Guide](docs/regex-and-type-safety.md)** |
+
+<br />
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our contributing guidelines for details on how to:
+We welcome contributions! Whether it's reporting a bug, improving documentation, or submitting a pull request, we'd love to have your help. Please see our contributing guidelines for more details.
 
-- Report bugs and request features
-- Submit pull requests
-- Improve documentation
-- Add examples and tutorials
+<br />
 
+## 📄 License
 
-**Ready to start parsing?** Check out the [Core Concepts](docs/core-concepts.md) to understand the fundamentals, then explore the [API Documentation](docs/api/overview.md) to find the right tools for your use case.
+MIT License - see the [LICENSE](LICENSE) file for details.
