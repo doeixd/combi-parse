@@ -1,6 +1,6 @@
 {
   "name": "@doeixd/combi-parse",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A parser combinator library designed for TypeScript, offering type inference and compile-time safety for building modular and maintainable parsers.",
   "author": "Patrick Glenn",
   "license": "MIT",
