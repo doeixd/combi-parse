@@ -23,7 +23,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
       const test = typedRegex('test');
       expect(() => test.parse('best')).toThrow();
       expect(() => test.parse('tes')).toThrow();
-      expect(() => test.parse('testing')).toThrow();
+      expect(() => test.parse('testing', { consumeAll: true })).toThrow();
     });
 
     it('should work with simple alternation patterns', () => {
@@ -87,7 +87,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
       expect(group.parse('abab')).toBe('abab');
       expect(group.parse('ababab')).toBe('ababab');
       expect(() => group.parse('a')).toThrow();
-      expect(() => group.parse('abc')).toThrow();
+      expect(() => group.parse('abc', { consumeAll: true })).toThrow();
     });
 
     it('should handle complex patterns', () => {
@@ -100,7 +100,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
       const parser = typedRegex('test');
       
       // Should not match partial strings
-      expect(() => parser.parse('testing')).toThrow();
+      expect(() => parser.parse('testing', { consumeAll: true })).toThrow();
       expect(() => parser.parse('pretest')).toThrow();
     });
 
@@ -270,7 +270,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
       const zipCode = compilePattern('[0-9]{5}');
       expect(zipCode.parse('12345')).toBe('12345');
       expect(() => zipCode.parse('1234')).toThrow();
-      expect(() => zipCode.parse('123456')).toThrow();
+      expect(() => zipCode.parse('123456', { consumeAll: true })).toThrow();
     });
   });
 
@@ -393,7 +393,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
     it('should work with empty array', () => {
       const empty = anyOf([]);
       
-      expect(() => empty.parse('anything')).toThrow();
+      expect(() => empty.parse('anything', { consumeAll: true })).toThrow();
     });
 
     it('should handle boolean strings', () => {
@@ -410,7 +410,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
       expect(digits.parse('0')).toBe('0');
       expect(digits.parse('5')).toBe('5');
       expect(digits.parse('9')).toBe('9');
-      expect(() => digits.parse('10')).toThrow(); // Too long
+      expect(() => digits.parse('10', { consumeAll: true })).toThrow(); // Too long
     });
 
     it('should handle overlapping strings correctly', () => {
@@ -532,7 +532,7 @@ describe('Type-Safe Regex Combinator Parser', () => {
       const exact = typedRegex('hello');
       
       expect(() => exact.parse('hell')).toThrow();
-      expect(() => exact.parse('hello world')).toThrow(); // Partial match in consumeAll mode
+      expect(() => exact.parse('hello world', { consumeAll: true })).toThrow(); // Partial match in consumeAll mode
     });
 
     it('should handle invalid regex patterns gracefully', () => {

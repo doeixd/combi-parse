@@ -154,7 +154,7 @@ describe('Core Contextual Combinators', () => {
     const contextualParser: ContextualParser<string, TestContext> = lift(baseParser);
     
     const result = contextualParser.run({ input: 'fail', index: 0, context: initialTestContext });
-    expectContextualFailure(result, 'Expected "test"', 0);
+    expectContextualFailure(result, '"test"', 0);
   });
 
   it('getContext() should succeed with the current context', () => {
@@ -207,7 +207,7 @@ describe('High-Level Context Helpers', () => {
         const initialContext: IndentContext = { indentLevel: 0, indentationSize: 4 };
         const result = indentedContentParser.run({ input: '  content', index: 0, context: initialContext });
         // It fails because it expects 0 spaces, but finds 2
-        expectContextualFailure(result, 'Expected indentation of 0 spaces', 0);
+        expectContextualFailure(result, 'Expected indentation of 0 spaces, but found 2', 0);
     });
   });
   

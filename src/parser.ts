@@ -149,7 +149,7 @@ export interface ParseOptions {
    * If `true`, the parser must consume the entire input string for the
    * parse to be considered successful. If `false`, the parse succeeds
    * even if there is unconsumed input remaining.
-   * @default true
+   * @default false
    */
   readonly consumeAll?: boolean;
 }
@@ -206,7 +206,7 @@ export class Parser<T> {
    *   console.error(e.message);
    * }
    */
-  parse(input: string, options: ParseOptions = { consumeAll: true }): T {
+  parse(input: string, options: ParseOptions = { consumeAll: false }): T {
     const getLineAndCol = (index: number): { line: number, col: number } => {
       let line = 1;
       let lastNewlineIndex = -1;

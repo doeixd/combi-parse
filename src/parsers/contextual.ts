@@ -412,15 +412,17 @@ export function withIndentation<T, C extends { indentLevel: number; indentationS
   return new ContextualParser<T, C>(state => {
     const context = state.context;
     const expectedSpaces = context.indentLevel * context.indentationSize;
-    const indentRegex = new RegExp(`^[ ]{${expectedSpaces}}`);
-
-    const match = state.input.slice(state.index).match(indentRegex);
-    if (!match) {
-      const actualSpaces = state.input.slice(state.index).match(/^[ ]*/)?.[0].length || 0;
+    
+    // Get the actual number of leading spaces
+    const actualSpacesMatch = state.input.slice(state.index).match(/^[ ]*/);
+    const actualSpaces = actualSpacesMatch ? actualSpacesMatch[0].length : 0;
+    
+    // Check if the actual spaces match the expected amount
+    if (actualSpaces !== expectedSpaces) {
       return contextualFailure(`Expected indentation of ${expectedSpaces} spaces, but found ${actualSpaces}.`, state);
     }
 
-    const stateAfterIndent = { ...state, index: state.index + match[0].length };
+    const stateAfterIndent = { ...state, index: state.index + actualSpaces };
     return parser.run(stateAfterIndent);
   });
 }

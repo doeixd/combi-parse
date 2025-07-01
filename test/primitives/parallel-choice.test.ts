@@ -167,15 +167,14 @@ describe('Parallel and Asynchronous Parser Execution', () => {
     });
 
     it('should default to hardware concurrency for worker count', () => {
-      // Mock navigator.hardwareConcurrency
-      const originalNavigator = global.navigator;
-      (global as any).navigator = { hardwareConcurrency: 8 };
+      // Mock navigator.hardwareConcurrency using vi.stubGlobal
+      vi.stubGlobal('navigator', { hardwareConcurrency: 8 });
       
       const parserCode = 'self.addEventListener("message", () => {});';
       const worker = new WorkerParser(parserCode); // No worker count specified
       expect(worker).toBeInstanceOf(WorkerParser);
       
-      global.navigator = originalNavigator;
+      vi.unstubAllGlobals();
       worker.dispose();
     });
 

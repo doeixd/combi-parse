@@ -105,7 +105,7 @@ describe('Advanced Pattern Matching and Recognition', () => {
       expect(numbers.parse('0')).toBe('0');
       expect(numbers.parse('3')).toBe('3');
       expect(() => numbers.parse('6')).toThrow();
-      expect(() => numbers.parse('10')).toThrow(); // Multi-digit
+      expect(() => numbers.parse('10', { consumeAll: true })).toThrow(); // Multi-digit
     });
   });
 
@@ -330,7 +330,7 @@ describe('Advanced Pattern Matching and Recognition', () => {
       const fullWord = pattern(['hello'] as const);
       
       expect(() => fullWord.parse('hell')).toThrow();
-      expect(() => fullWord.parse('hello world')).toThrow(); // Doesn't consume all
+      expect(() => fullWord.parse('hello world', { consumeAll: true })).toThrow(); // Doesn't consume all
     });
 
     it('should handle null or undefined in literals array', () => {
@@ -346,7 +346,7 @@ describe('Advanced Pattern Matching and Recognition', () => {
       
       expect(manyLiterals.parse('item0')).toBe('item0');
       expect(manyLiterals.parse('item999')).toBe('item999');
-      expect(() => manyLiterals.parse('item1000')).toThrow();
+      expect(() => manyLiterals.parse('item1000', { consumeAll: true })).toThrow();
     });
 
     it('should handle duplicate literals gracefully', () => {

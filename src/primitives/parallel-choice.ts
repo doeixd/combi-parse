@@ -82,29 +82,56 @@ export async function parallelChoice<T>(
   input: string,
   options?: { timeout?: number }
 ): Promise<T> {
-  const promises = parsers.map(parser =>
-    new Promise<T>((resolve, reject) => {
-      // Run in next tick to simulate parallelism
+  if (parsers.length === 0) {
+    throw new Error('No parsers provided');
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let completed = 0;
+    const errors: Error[] = [];
+    let resolved = false;
+
+    const tryResolve = (result: T) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(result);
+      }
+    };
+
+    const tryReject = (error: Error) => {
+      errors.push(error);
+      completed++;
+      
+      // Only reject if all parsers have failed
+      if (completed === parsers.length && !resolved) {
+        reject(new Error(`All parsers failed: ${errors.map(e => e.message).join(', ')}`));
+      }
+    };
+
+    // Set up timeout if specified
+    let timeoutId: NodeJS.Timeout | undefined;
+    if (options?.timeout) {
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error('Parsing timeout'));
+        }
+      }, options.timeout);
+    }
+
+    // Start all parsers
+    parsers.forEach(parser => {
       setTimeout(() => {
         try {
           const result = parser.parse(input);
-          resolve(result);
+          if (timeoutId) clearTimeout(timeoutId);
+          tryResolve(result);
         } catch (error) {
-          reject(error);
+          tryReject(error as Error);
         }
       }, 0);
-    })
-  );
-
-  if (options?.timeout) {
-    promises.push(
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error('Parsing timeout')), options.timeout)
-      )
-    );
-  }
-
-  return Promise.race(promises);
+    });
+  });
 }
 
 /**
@@ -225,6 +252,11 @@ export class WorkerParser<T> {
    * ```
    */
   async parseChunks(chunks: string[]): Promise<T[]> {
+    // Handle empty chunks case
+    if (chunks.length === 0) {
+      return [];
+    }
+
     const availableWorkers = this.workers.filter(w => w !== null) as Worker[];
     if (availableWorkers.length === 0) {
       throw new Error('No workers available');

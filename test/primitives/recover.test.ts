@@ -216,7 +216,7 @@ describe('Error Recovery and Robust Parsing', () => {
       const recoveredInner = recover(innerParser, {
         patterns: str(')'),
         fallback: 'inner_error',
-        strategy: 'consume'
+        strategy: 'position'
       });
       const recoveredOuter = recover(
         sequence([str('outer('), recoveredInner, str(')')]), {
@@ -367,9 +367,9 @@ describe('Error Recovery and Robust Parsing', () => {
     });
 
     it('should handle SQL statement recovery', () => {
-      const selectStmt = sequence([str('SELECT'), regex(/[^;]+/)]);
-      const insertStmt = sequence([str('INSERT'), regex(/[^;]+/)]);
-      const updateStmt = sequence([str('UPDATE'), regex(/[^;]+/)]);
+      const selectStmt = sequence([str('SELECT'), regex(/[^;]+/), str(';')]);
+      const insertStmt = sequence([str('INSERT'), regex(/[^;]+/), str(';')]);
+      const updateStmt = sequence([str('UPDATE'), regex(/[^;]+/), str(';')]);
       
       const validStatement = choice([selectStmt, insertStmt, updateStmt]);
       
@@ -384,17 +384,16 @@ describe('Error Recovery and Robust Parsing', () => {
       const input = `SELECT * FROM users;INVALID SYNTAX HERE;UPDATE users SET name = 'John';`;
       const result = script.parse(input);
       
-      // The input produces 5 items because the invalid syntax doesn't start with valid keywords
       expect(result).toHaveLength(3);
-      expect(result[0]).toEqual(['SELECT', ' * FROM users']);
+      expect(result[0]).toEqual(['SELECT', ' * FROM users', ';']);
       expect(result[1]).toEqual({ type: 'syntax_error', query: 'malformed' });
-      expect(result[2]).toEqual(['UPDATE', ' users SET name = \'John\'']);
+      expect(result[2]).toEqual(['UPDATE', ' users SET name = \'John\'', ';']);
     });
 
     it('should handle configuration file parsing with recovery', () => {
       const configKey = regex(/[a-z_]+/);
       const configValue = regex(/[^\n]+/);
-      const configLine = sequence([configKey, str('='), configValue]);
+      const configLine = sequence([configKey, str('='), configValue, regex(/\n?/)]);
       
       const recoveredLine = recover(configLine, {
         patterns: regex(/\n/),
@@ -408,9 +407,9 @@ describe('Error Recovery and Robust Parsing', () => {
       const result = configFile.parse(input);
       
       expect(result).toHaveLength(3);
-      expect(result[0]).toEqual(['host', '=', 'localhost']);
+      expect(result[0]).toEqual(['host', '=', 'localhost', '\n']);
       expect(result[1]).toEqual({ key: 'error', value: 'invalid_line' });
-      expect(result[2]).toEqual(['port', '=', '3000']);
+      expect(result[2]).toEqual(['port', '=', '3000', '']);
     });
 
     it('should handle HTML tag recovery', () => {
