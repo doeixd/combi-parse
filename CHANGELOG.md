@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.6](https://github.com/doeixd/combi-parse/compare/v0.0.5...v0.0.6) (2025-07-02)
+
+
+### Bug Fixes
+
+* resolve TypeScript compilation errors and duplicate exports ([a718a9d](https://github.com/doeixd/combi-parse/commit/a718a9dcb1d97f41605c6eca6194f63104483686))
+
 ### [0.0.5](https://github.com/doeixd/combi-parse/compare/v0.0.4...v0.0.5) (2025-07-01)
 
 
