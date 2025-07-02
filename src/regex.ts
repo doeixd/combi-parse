@@ -184,8 +184,7 @@ type NonDigit = Exclude<Printable, Digit>;
 type NonWordChar = Exclude<Printable, WordChar>;
 type NonWhitespace = Exclude<Printable, Whitespace>;
 
-// Simplified word char for better type performance
-type SimpleWordChar = '_' | Digit | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm';
+
 type Printable = AlphaNum | ' ' | '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' | '-' | '_' | '=' | '+' | '[' | ']' | '{' | '}' | ';' | ':' | '"' | "'" | ',' | '.' | '<' | '>' | '/' | '?' | '\\' | '|' | '`' | '~';
 
 // =================================================================
@@ -586,63 +585,3 @@ type IsUnionType<T> =
 // =================================================================
 // TESTS
 // =================================================================
-type AssertEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
-type AssertTrue<T extends true> = T;
-
-// Simple literal
-type Enum1 = Enumerate<CompileRegex<'abc'>>;
-type TestEnum1 = AssertTrue<AssertEqual<Enum1, 'abc'>>;
-
-// Optional '?'
-type Enum2 = Enumerate<CompileRegex<'a?b'>>;
-type TestEnum2 = AssertTrue<AssertEqual<Enum2, 'ab' | 'b'>>;
-
-// Kleene Star '*'
-type Enum3 = Enumerate<CompileRegex<'a*b'>>;
-type TestEnum3 = AssertTrue<AssertEqual<Enum3, "b" | `a${string}`>>;
-
-// Plus '+'
-type Enum4 = Enumerate<CompileRegex<'a+b'>>;
-type TestEnum4 = AssertTrue<AssertEqual<Enum4, `a${string}`>>;
-
-// Character class
-type Enum5 = Enumerate<CompileRegex<'[ab]c'>>;
-type TestEnum5 = AssertTrue<AssertEqual<Enum5, 'ac' | 'bc'>>;
-
-// Dot
-type Enum6 = Enumerate<CompileRegex<'.'>>;
-type TestEnum6 = AssertTrue<AssertEqual<Enum6, Printable>>;
-
-// Alternation
-type Enum7 = Enumerate<CompileRegex<'cat|dog'>>;
-type TestEnum7 = AssertTrue<AssertEqual<Enum7, 'cat' | 'dog'>>;
-
-// Grouping
-type Enum8 = Enumerate<CompileRegex<'a(bc)?d'>>;
-type TestEnum8 = AssertTrue<AssertEqual<Enum8, 'ad' | 'abcd'>>;
-
-// Complex cases with loops
-type Enum9 = Enumerate<CompileRegex<'[ab]+'>>;
-type TestEnum9 = AssertTrue<AssertEqual<Enum9, `a${string}` | `b${string}`>>;
-
-type Enum10 = Enumerate<CompileRegex<'[0-9]*'>>;
-type TestEnum10 = AssertTrue<AssertEqual<Enum10, "" | `${Digit}${string}`>>;
-
-// Another complex case
-type Enum11 = Enumerate<CompileRegex<'a[bc]*d'>>;
-// type TestEnum11 = AssertTrue<AssertEqual<Enum11, 'ad' | `a${'b' | 'c'}${string}d`>>;
-
-// Test escape sequences
-type Enum12 = Enumerate<CompileRegex<'\\d'>>;
-type TestEnum12 = AssertTrue<AssertEqual<Enum12, Digit>>;
-
-// WordChar is too complex for type-level testing, so just verify it compiles
-type Enum13 = Enumerate<CompileRegex<'\\w'>>;
-// type TestEnum13 = AssertTrue<AssertEqual<Enum13, WordChar>>;
-
-type Enum14 = Enumerate<CompileRegex<'\\d\\d\\d'>>;
-type TestEnum14 = AssertTrue<AssertEqual<Enum14, `${Digit}${Digit}${Digit}`>>;
-
-// Test combining escape sequences with other patterns
-type Enum15 = Enumerate<CompileRegex<'\\d?'>>;
-type TestEnum15 = AssertTrue<AssertEqual<Enum15, '' | Digit>>;

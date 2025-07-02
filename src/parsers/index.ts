@@ -67,11 +67,83 @@
 
 // Core parser exports
 export * from './binary';
-export * from './contextual';
+// Export contextual module items individually to avoid conflicts
+export {
+  ContextualParserOptions,
+  ParserContext,
+  VariableInfo,
+  Scope,
+  TypeInfo,
+  ContextPerformanceInfo,
+  ContextValidator,
+  ValidationResult,
+  Position as ContextualPosition,
+  ContextualParserState,
+  ContextualSuccess,
+  ContextualFailure,
+  ContextualParseResult,
+  contextualSuccess,
+  contextualFailure,
+  ContextualParser,
+  lift,
+  getContext,
+  setContext,
+  updateContext,
+  withIndentation,
+  withIncreasedIndentation,
+  withScope
+} from './contextual';
+
 export * from './generator';
-export * from './incremental';
-export * from './secure';
-export * from './stream';
+
+// Export everything except conflicting names, then re-export with specific names
+export {
+  IncrementalParserOptions,
+  IncrementalParseMetrics,
+  IncrementalParseResult,
+  ParseError,
+  Position as IncrementalPosition,
+  TextRange,
+  ErrorSuggestion,
+  TextChange,
+  ParseTreeDiff,
+  ParseTreeNode,
+  StructuralChange,
+  SemanticChange,
+  ScopeChange,
+  ParseContext,
+  IncrementalParserEvents,
+  MemoryUsage,
+  CacheStatistics,
+  IncrementalContext,
+  memoize,
+  IncrementalSession,
+  createIncrementalSession,
+  lift as liftIncremental
+} from './incremental';
+
+export {
+  SecurityOptions,
+  SecurityContext,
+  withRecursionCheck,
+  withTimeoutCheck,
+  SecureSession,
+  createSecureSession,
+  lift as liftSecure,
+  dosResistant
+} from './secure';
+
+export {
+  StreamParserOptions,
+  StreamParserMetrics,
+  ParsedItem,
+  StreamParserEvents,
+  StreamContext,
+  streamMany,
+  StreamSession,
+  createStreamSession,
+  lift as liftStream
+} from './stream';
 
 /**
  * Async stream parser for processing data incrementally.

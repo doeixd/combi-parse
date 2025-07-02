@@ -56,10 +56,10 @@
  * ```
  */
 
-import { Parser, whitespace } from "../parser";
+import { Parser } from "../parser";
 import { EventEmitter } from 'events';
 import { Transform } from 'stream';
-import { ContextualParser, ContextualParserState, contextualFailure, contextualSuccess, lift as liftToContextual } from "./contextual";
+import { ContextualParser, ContextualParserState, contextualSuccess, lift as liftToContextual } from "./contextual";
 
 /**
  * Configuration options for a `StreamSession`'s behavior and performance tuning.
@@ -449,7 +449,7 @@ export class StreamSession<T, C extends StreamContext> extends EventEmitter {
     const session = this;
     return new Transform({
       objectMode: true,
-      transform(chunk, encoding, callback) {
+      transform(chunk, _, callback) {
         try {
           const itemHandler = (item: ParsedItem<T>) => { this.push(item.value); };
           session.on('item', itemHandler);

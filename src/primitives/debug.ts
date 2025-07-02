@@ -213,7 +213,7 @@ export function toRailroadDiagram(parser: Parser<any>): string {
 
   function visit(p: Parser<any>, x: number, y: number): number {
     // Since we don't have specific parser subclasses, we'll create a generic visualization
-    const description = p.describe?.() || 'Parser';
+    const description = (p as any).describe?.() || 'Parser';
     return svg.terminal(description, x, y);
   }
 

@@ -427,7 +427,8 @@ function failure(message: string, state: ParserState) {
   return {
     type: "failure" as const,
     message,
-    state
+    state,
+    found: state.input.slice(state.index, state.index + 1) || 'end of input'
   };
 }
 
@@ -481,7 +482,7 @@ export function createProfiledParser<T>(
   return genParserWithOptions(genFn, {
     debug: true,
     profile: true,
-    onComplete: (result, stats) => {
+    onComplete: (_, stats) => {
       console.log('\n📊 Parsing Profile:');
       console.log(`  ⏱️  Execution time: ${stats.executionTime}ms`);
       console.log(`  🔢 Total steps: ${stats.totalSteps}`);

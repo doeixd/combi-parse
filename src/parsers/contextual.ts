@@ -105,7 +105,7 @@
  * ```
  */
 
-import { Parser, ParserState, success, failure, ParserError } from "../parser";
+import { Parser, ParserState, ParserError } from "../parser";
 
 // All the descriptive interfaces from the original file are kept, as they define the
 // domain model for contextual parsing, which is still highly relevant.
