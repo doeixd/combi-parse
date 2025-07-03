@@ -399,7 +399,7 @@ Combi-Parse includes specialized engines for the most demanding use cases, ensur
       console.log('A security violation was caught.');
     }
     ```
-
+<br />
 
 ## 🧰 A Tool for Every Task: Parsing Paradigms
 
