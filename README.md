@@ -268,6 +268,58 @@ Ready to build your own parser? We have comprehensive documentation to guide you
 
 <br />
 
+## 📖 Quick API Reference
+
+A summary of the most common functions and methods.
+
+### Core Parsers
+The fundamental building blocks for recognizing patterns.
+
+| Name | Description |
+| :--- | :--- |
+| **`str(text)`** | **Matches** the exact string `text`. |
+| **`regex(pattern)`** | **Matches** a regular expression. |
+| **`charClass(name)`** | **Matches** a single character from a type-safe, named class (e.g., `'Digit'`, `'Alpha'`). |
+| **`number`** | **Parses** an integer or floating-point number. |
+| **`anyChar`** | **Consumes** any single character. |
+| **`eof`** | **Succeeds** only at the end of the input. |
+
+### Combinators
+Functions that combine smaller parsers into more complex ones.
+
+| Name | Description |
+| :--- | :--- |
+| **`sequence(parsers, [mapper])`** | **Runs** an array of parsers in order. Returns an array of their results, or a custom value if a `mapper` function is provided. |
+| **`choice(parsers)`** | **Tries** an array of parsers in order and returns the result of the first one that succeeds. |
+| **`many(parser)`** | **Matches** the `parser` zero or more times, returning an array of results. Never fails. |
+| **`many1(parser)`** | **Matches** the `parser` one or more times. Fails if it can't match at least once. |
+| **`sepBy(item, separator)`** | **Matches** zero or more `item`s separated by a `separator`. |
+| **`between(left, content, right)`**| **Matches** `content` that is surrounded by `left` and `right` delimiters. |
+| **`lazy(fn)`** | **Defers** the creation of a parser. Essential for defining recursive grammars (e.g., a JSON object that can contain other objects). |
+
+### Parser Methods (Fluent API)
+Methods that can be chained onto any parser instance.
+
+| Name | Description |
+| :--- | :--- |
+| **`.map(fn)`** | **Transforms** a parser's successful result. The most common way to shape your output data. |
+| **`.chain(fn)`** | **Sequences** another parser where the next parser depends on the result of the first. The most powerful way to create dynamic parsing logic. |
+| **`.or(otherParser)`** | **Provides** an alternative parser if the first one fails without consuming input. |
+| **`.optional()`** | **Makes** a parser optional. Succeeds with `null` if the parser fails. |
+| **`.keepLeft(other)`** | **Runs** another parser after, but keeps the result of the first one. |
+| **`.keepRight(other)`** | **Runs** another parser after, but keeps the result of the second one. |
+
+### Utilities & Error Handling
+
+| Name | Description |
+| :--- | :--- |
+| **`lexeme(parser)`** | **Wraps** a parser to also consume and discard any trailing whitespace. The key to writing clean grammars. |
+| **`genParser(fn)`** | **Creates** a parser from a generator function, allowing for a more readable, imperative style for complex sequential logic. |
+| **`label(parser, msg)`** | **Replaces** a parser's default error message with a more descriptive `msg`. |
+| **`context(parser, msg)`** | **Adds** context to an error message, showing *what* the parser was trying to do when it failed (e.g., "in a function call"). |
+
+<br />
+
 ## 🤝 Contributing
 
 We welcome contributions! Whether it's reporting a bug, improving documentation, or submitting a pull request, we'd love to have your help. Please see our contributing guidelines for more details.
