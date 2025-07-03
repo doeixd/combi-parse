@@ -233,6 +233,174 @@ We designed Combi-Parse around a few key principles to make parsing a better exp
 
 <br />
 
+<br/>
+
+## ✨ Principles & Capabilities
+
+You've seen the basics of combining parsers. Now, let's explore what makes Combi-Parse uniquely suited for real-world scenarios. The library is built on a few core principles that address common parsing challenges.
+
+### 1. Precise Type-Safety: Catch Errors Before You Run
+
+While many tools might return a generic `string[]` or `any`, Combi-Parse is designed to give you the most precise types possible. This allows TypeScript to catch logical errors in your parsing code at compile time, long before it ever runs.
+
+A key pattern is using `as const` with the `sequence` combinator. This gives TypeScript enough information to infer the exact type of each element in your parsed sequence.
+
+```typescript
+import { sequence, str, regex, number } from '@doeixd/combi-parse';
+
+const declaration = sequence(
+  [
+    str('let'),
+    regex(/[a-z]+/), // Our identifier
+    str('='),
+    number,           // Our value
+  ] as const, // `as const` helps TypeScript infer the exact tuple type
+  
+  // Because of `as const`, TypeScript knows the exact type of each element.
+  ([_let, name, _eq, value]) => ({ name, value })
+);
+
+const result = declaration.parse('let age = 42');
+
+// No more guesswork.
+// result.name is known to be a `string`.
+// result.value is known to be a `number`.
+console.log(`Variable '${result.name}' has value ${result.value}.`);
+```
+
+### 2. First-Class Composability: Build Reusable Grammars
+
+In Combi-Parse, parsers are first-class values. You can store them in variables, pass them to functions, and compose them in flexible and powerful ways. This enables you to create **higher-order parsers**—functions that build new parsers—to eliminate boilerplate and make your grammars more modular and maintainable.
+
+For example, you can create a function that wraps any parser to add a timestamp to its result:
+
+```typescript
+import { Parser, regex } from '@doeixd/combi-parse';
+
+// A higher-order parser that takes any parser and enhances its result.
+function withTimestamp<T>(parser: Parser<T>): Parser<{ data: T, timestamp: number }> {
+  return parser.map(data => ({
+    data,
+    timestamp: Date.now()
+  }));
+}
+
+// Now, apply it to an existing parser to create a new, timestamp-aware one.
+const timestampedErrorLog = withTimestamp(regex(/ERROR: .*/));
+
+const log = timestampedErrorLog.parse('ERROR: DB connection failed');
+// log -> { data: "ERROR: DB connection failed", timestamp: 167... }
+```
+
+### 3. Generator Syntax: Clean Code for Complex Sequences
+
+Deeply nested `sequence` and `.chain()` calls can become hard to read. For complex, multi-step parsing, you can use `genParser` to write your logic in a clean, imperative style that looks just like standard synchronous code, improving readability and maintainability.
+
+```typescript
+import { genParser, anyOf, str, regex } from '@doeixd/combi-parse/generator';
+
+const httpHeaderParser = genParser(function* () {
+  const method = yield anyOf(['GET', 'POST', 'PUT'] as const);
+  yield str(' ');
+  const path = yield regex(/[\w\/]+/);
+  yield str(' HTTP/1.1\r\n');
+  
+  // This style makes it easy to add loops for parsing multiple header lines.
+  
+  return { method, path };
+});
+
+const header = httpHeaderParser.parse('GET /api/users HTTP/1.1\r\n...');
+// header -> { method: 'GET', path: '/api/users' }
+```
+
+### 4. Binary Parsing: Go Beyond Text
+
+Parsing isn't just for text. With the dedicated binary toolkit, you can apply the same combinator approach to decode file formats, network protocols, or any structured binary data. It handles details like endianness and data views automatically.
+
+```typescript
+import { Binary } from '@doeixd/combi-parse/binary';
+
+// A parser for a simple image header.
+const imageHeaderParser = Binary.sequence([
+  Binary.u32BE,        // Width, 4 bytes, big-endian
+  Binary.u32BE,        // Height, 4 bytes, big-endian
+  Binary.u8,           // Color depth (1 byte)
+  Binary.string(3),    // Image type, e.g., "IMG" (3 bytes)
+] as const).map(([width, height, depth, type]) => ({
+  width, height, depth, type
+}));
+
+// Create a sample buffer: 1024x768, 8-bit depth, "IMG"
+const buffer = new Uint8Array([
+  0, 0, 4, 0,  // 1024
+  0, 0, 3, 0,  // 768
+  8,           // 8
+  73, 77, 71   // "IMG"
+]).buffer;
+
+const header = imageHeaderParser.parse(buffer, 0);
+// header -> { width: 1024, height: 768, depth: 8, type: 'IMG' }
+```
+
+### 5. Stream Processing: Handle Large-Scale Data
+
+What if your input is a 10GB log file or a real-time data feed? Loading it all into memory is not an option. The stream processing engine allows you to parse enormous datasets chunk-by-chunk with constant memory usage.
+
+```typescript
+import { createStreamSession, lift } from '@doeixd/combi-parse/stream';
+import { jsonObjectParser } from './my-json-parser'; // Assume a JSON object parser
+import { whitespace } from '@doeixd/combi-parse';
+
+// Create a session to parse a stream of JSON objects separated by newlines.
+const session = createStreamSession(
+  lift(jsonObjectParser), // Parser for one item
+  lift(whitespace)        // Delimiter between items
+);
+
+// Process each item as it's parsed.
+session.on('item', ({ value: log }) => {
+  if (log.level === 'ERROR') {
+    // A security alert was logged.
+  }
+});
+
+// Feed data chunks as they arrive from a file or network.
+session.feed('{"level":"INFO", "msg":"User logged in"}\n{"level":"ERROR"');
+session.feed(', "msg":"DB connection failed"}\n'); // Handles incomplete chunks automatically
+
+session.end();
+```
+
+### 6. Advanced Engines: Built for Demanding Applications
+
+Combi-Parse includes specialized engines for the most demanding use cases, ensuring you have the right tool for any job.
+
+-   **Incremental Parsing:** For applications like **code editors and IDEs**, this engine can re-parse a document after a small text change by reusing unchanged parts of the parse tree. This enables near-instant feedback for features like live error checking and syntax highlighting.
+    ```typescript
+    // In an editor environment:
+    const session = createIncrementalSession(myLanguageParser);
+    await session.parse(initialDocument);
+
+    // When the user types 'x':
+    await session.parse(newDocument, [{ range, text: 'x' }]); // Re-parses in milliseconds
+    ```
+
+-   **Secure Parsing:** When parsing **untrusted user input**, a cleverly crafted string can cause some parsers to enter an infinite loop or use exponential amounts of memory. The secure parsing engine runs your parser in a sandbox with resource limits.
+    ```typescript
+    const safeParser = createSecureSession(myParser, {
+      maxDepth: 50,         // Limit recursion to prevent stack overflows
+      maxParseTime: 1000,   // Timeout after 1 second
+    });
+    
+    try {
+      safeParser.parse(maliciousUserInput);
+    } catch (e) {
+      console.log('A security violation was caught.');
+    }
+    ```
+
+
 ## 🧰 A Tool for Every Task: Parsing Paradigms
 
 Combi-Parse gives you a toolkit of specialized approaches so you can choose the right one for your project.
