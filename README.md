@@ -451,12 +451,14 @@ Matches the exact string `text`.
 ```javascript
 str("let") // matches "let" exactly
 ```
+<br />
 
 **regex(pattern: RegExp)** → `Parser<string>`
 Matches a regular expression. The pattern is automatically anchored to the current position.
 ```javascript
 regex(/\d+/) // matches one or more digits
 ```
+<br />
 
 **charClass(...classes)** → `Parser<string>`
 Matches a single character from a type-safe class (e.g., `'Digit'`) or a custom string.
@@ -464,12 +466,14 @@ Matches a single character from a type-safe class (e.g., `'Digit'`) or a custom 
 charClass('Digit') // matches 0-9
 charClass('aeiou') // matches vowels
 ```
+<br />
 
 **anyOf(strings: readonly string[])** → `Parser<T[number]>`
 Matches any of the provided literal strings. A type-safe and ergonomic alternative to `choice`.
 ```javascript
 anyOf(['GET', 'POST'] as const) // matches HTTP methods
 ```
+<br />
 
 #### Character & Number Parsing
 
@@ -478,6 +482,7 @@ Parses an integer or floating-point number.
 ```javascript
 number // matches "123", "3.14", "-42"
 ```
+<br />
 
 **anyChar** → `Parser<string>`
 Consumes and returns any single character. Fails only at the end of input.
@@ -487,6 +492,7 @@ Matches any single character that is *not* in the `chars` string.
 ```javascript
 noneOf('()[]{}') // matches any char except brackets
 ```
+<br />
 
 **whitespace** → `Parser<string>`
 Matches one or more whitespace characters (`\s+`).
@@ -513,12 +519,14 @@ Runs parsers in order. Returns an array of results, or a transformed value via t
 ```javascript
 sequence([str('('), number, str(')')], ([, num]) => num)
 ```
+<br />
 
 **choice(parsers: Parser[])** → `Parser<T>`
 Tries parsers in order, returning the first success. Provides intelligent, combined error messages.
 ```javascript
 choice([str('true'), str('false'), number])
 ```
+<br />
 
 #### Repetition
 
@@ -527,6 +535,7 @@ Matches the `parser` zero or more times. Returns an array of results. Never fail
 ```javascript
 many(regex(/\w/)) // matches zero or more word characters
 ```
+<br />
 
 **many1(parser: Parser<T>)** → `Parser<T[]>`
 Matches the `parser` one or more times. Fails if it can't match at least once.
@@ -536,6 +545,7 @@ Matches the `parser` exactly `n` times.
 ```javascript
 count(3, regex(/\d/)) // matches exactly 3 digits
 ```
+<br />
 
 #### Lists & Separators
 
@@ -544,12 +554,14 @@ Matches zero or more `item`s separated by `sep`. Ideal for lists like `1,2,3`.
 ```javascript
 sepBy(number, str(',')) // matches "1,2,3" or ""
 ```
+<br />
 
 **sepBy1(item: Parser<T>, sep: Parser<U>)** → `Parser<T[]>`
 Matches one or more `item`s separated by `sep`.
 ```javascript
 sepBy1(number, str(',')) // matches "1,2,3" but not ""
 ```
+<br />
 
 #### Delimiters & Structure
 
@@ -558,12 +570,14 @@ Matches `content` surrounded by `left` and `right` delimiters.
 ```javascript
 between(str('('), number, str(')')) // matches "(42)"
 ```
+<br />
 
 **until(terminator: Parser<T>)** → `Parser<string>`
 Consumes characters as a string until the `terminator` parser succeeds. Perfect for comments or string contents.
 ```javascript
 until(str('*/')) // matches everything until "*/"
 ```
+<br />
 
 #### Advanced Combinators
 
@@ -572,6 +586,7 @@ Defers parser creation. **Essential for recursive grammars** (e.g., a JSON value
 ```javascript
 const jsonValue = lazy(() => choice([jsonObject, jsonArray, str('null')]))
 ```
+<br />
 
 ### Parser Class Methods
 
@@ -584,18 +599,21 @@ Transforms a parser's successful result. The most common way to shape your outpu
 ```javascript
 regex(/\d+/).map(Number) // parse digits and convert to number
 ```
+<br />
 
 **.tryMap(fn: (value: T) => Result<U>)** → `Parser<U>`
 Transforms a result using a function that can *also fail*. Used for semantic validation after a successful parse.
 ```javascript
 number.tryMap(n => n < 256 ? success(n) : fail('too large'))
 ```
+<br />
 
 **.chain(fn: (value: T) => Parser<U>)** → `Parser<U>`
 Sequences another parser where the next logic depends on the result of the first. The most powerful way to create dynamic parsers.
 ```javascript
 str('repeat').chain(() => number).chain(n => count(n, anyChar))
 ```
+<br />
 
 #### Alternatives & Options
 
@@ -604,12 +622,14 @@ Provides an alternative `other` parser if the first one fails *without consuming
 ```javascript
 str('yes').or(str('no')) // matches either "yes" or "no"
 ```
+<br />
 
 **.optional()** → `Parser<T | null>`
 Makes a parser optional. Succeeds with `null` if the parser would have failed.
 ```javascript
 str('const').optional() // matches "const" or nothing
 ```
+<br />
 
 #### Sequencing
 
@@ -618,12 +638,14 @@ Runs `other` parser after, but keeps the result of the first one.
 ```javascript
 str('hello').keepLeft(whitespace) // matches "hello " but returns "hello"
 ```
+<br />
 
 **.keepRight(other: Parser<U>)** → `Parser<U>`
 Runs `other` parser after, but keeps the result of the second one.
 ```javascript
 str('$').keepRight(number) // matches "$42" but returns 42
 ```
+<br />
 
 #### Utilities
 
@@ -632,12 +654,14 @@ Returns the raw string slice consumed by the parser instead of its structured re
 ```javascript
 many1(regex(/\w/)).slice() // returns the matched word as a string
 ```
+<br />
 
 **.debug(label: string)** → `Parser<T>`
 Adds console logging to a parser's execution for debugging, without changing its behavior.
 ```javascript
 number.debug('parsing number') // logs debug info when parsing
 ```
+<br />
 
 ### Error Handling & Advanced Control
 
@@ -646,36 +670,42 @@ Wraps a parser to also consume and discard any trailing whitespace. The key to w
 ```javascript
 const token = (p) => lexeme(p) // helper for whitespace-aware parsing
 ```
+<br />
 
 **label(parser: Parser<T>, msg: string)** → `Parser<T>`
 Replaces a parser's default error message with a more descriptive `msg`.
 ```javascript
 label(number, 'expected a number') // custom error message
 ```
+<br />
 
 **context(parser: Parser<T>, msg: string)** → `Parser<T>`
 Adds context to an error message, showing *what* the parser was trying to do when it failed.
 ```javascript
 context(functionCall, 'in a function call') // adds context to errors
 ```
+<br />
 
 **lookahead(parser: Parser<T>)** → `Parser<T>`
 Succeeds if `parser` would match, but consumes no input. A "positive lookahead".
 ```javascript
 lookahead(str('if')).keepRight(keyword) // checks for 'if' without consuming
 ```
+<br />
 
 **notFollowedBy(parser: Parser<T>)** → `Parser<null>`
 Succeeds if `parser` would *fail* to match. Consumes no input. A "negative lookahead", great for resolving ambiguity.
 ```javascript
 str('if').keepLeft(notFollowedBy(regex(/\w/))) // 'if' not followed by word char
 ```
+<br />
 
 **memo(parser: Parser<T>)** → `Parser<T>`
 Memoizes a parser's result at each position, dramatically improving performance for grammars with lots of backtracking.
 
 **leftRecursive(fn: () => Parser<T>)** → `Parser<T>`
 Correctly **handles** left-recursive grammars (e.g., `expr = expr + term`), which would cause infinite loops in simple parsers.
+<br />
 
 ## Generator-Based Parsing (`@doeixd/combi-parse/generator`)
 
@@ -691,6 +721,7 @@ const parser = genParser(function* () {
   return num
 })
 ```
+<br />
 
 **`asyncGenParser(fn: AsyncGeneratorFunction)`** → `AsyncParser<T>`
 Creates a parser from an `async function*`. Allows you to `await` promises (e.g., DB calls, API requests) inside your parsing logic.
